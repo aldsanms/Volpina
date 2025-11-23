@@ -4,10 +4,11 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import LoginScreen from '../screens/LoginScreen';
 import PINScreen from '../screens/PINScreen';
 import TabNavigator from './TabNavigator';
-import NewConversationScreen from '../screens/NewConversationScreen';
 import ScanConversation from '../screens/ScanConversation';
 import MenuConv from '../screens/MenuConv';
 import LockScreen from '../screens/LockScreen';
+import ConversationViewScreen from '../screens/ConversationViewScreen';
+import ShareConvScreen from '../screens/ShareConvScreen';
 
 import { getMasterHash, isSessionExpired } from '../utils/SessionManager';
 import { useState, useEffect, useRef } from 'react';
@@ -103,10 +104,10 @@ export default function AppNavigator() {
             <>
               <Stack.Screen name="Main" component={TabNavigator} />
               <Stack.Screen name="MenuConv" component={MenuConv} />
-              <Stack.Screen name="NewConversation" component={NewConversationScreen} />
               <Stack.Screen name="ScanConversation" component={ScanConversation} />
+              <Stack.Screen name="ConversationView" component={ConversationViewScreen} />
+              <Stack.Screen name="ShareConv" component={ShareConvScreen} />
 
-              {/*  PINScreen accessible même en mode "done" */}
               <Stack.Screen name="PINScreen">
                 {() => (
                   <PINScreen

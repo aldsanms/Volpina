@@ -73,7 +73,7 @@ export default function LockScreen({ unlocked }) {
         styles.container,
         {
           transform: [{ translateY }],
-          opacity: Animated.multiply(dragOpacity, fade)  // 🔥 combine fade + scroll
+          opacity: Animated.multiply(dragOpacity, fade)  //  combine fade + scroll
         }
       ]}
     >
