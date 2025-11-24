@@ -1,38 +1,94 @@
+import React, { useState, useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, FlatList } from 'react-native';
-import { useRoute, useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
+import * as FileSystem from 'expo-file-system/legacy';
 import colors from '../theme/colors';
 
 export default function ConversationViewScreen() {
 
-  const route = useRoute();
   const navigation = useNavigation();
-
-  // Récupère convId envoyé depuis NewConversationScreen
+  const route = useRoute();
   const { convId } = route.params;
 
-  // Pour l’instant aucun message
-  const messages = []; // On mettra la lecture JSON plus tard
+  const [messages, setMessages] = useState([]);
+  const [convName, setConvName] = useState("Conversation");
+
+    useFocusEffect(
+    useCallback(() => {
+        loadConvInfo();
+        loadMessages();
+    }, [])
+    );
+
+  // Charger le nom de la conversation
+  async function loadConvInfo() {
+    const path = FileSystem.documentDirectory + "conversations.json";
+
+    try {
+      const raw = await FileSystem.readAsStringAsync(path);
+      const list = JSON.parse(raw);
+
+      const conv = list.find(c => c.id === convId);
+      if (conv) setConvName(conv.name);
+
+    } catch (e) {
+      console.log("Erreur lecture conv info :", e);
+    }
+  }
+
+  async function loadMessages() {
+    const path = FileSystem.documentDirectory + `conv_${convId}.json`;
+
+    try {
+      const raw = await FileSystem.readAsStringAsync(path);
+      const json = JSON.parse(raw);
+
+      setMessages(json.messages || []);
+    } catch (e) {
+      console.log("Erreur lecture messages :", e);
+      setMessages([]);
+    }
+  }
+
+  const renderItem = ({ item }) => (
+    <View style={styles.messageBubble}>
+      <Text style={styles.msgText}>{item.text}</Text>
+    </View>
+  );
 
   return (
     <View style={styles.container}>
 
-      {/* HEADER */}
+      {/* ───────── TOP BAR ───────── */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
+
+        <TouchableOpacity onPress={() => navigation.navigate("Main")}>
           <Text style={styles.back}>‹ Retour</Text>
         </TouchableOpacity>
 
-        <Text style={styles.title}>Conversation</Text>
+        <Text style={styles.title}>{convName}</Text>
 
-        <TouchableOpacity
-          style={styles.shareButton}
-          onPress={() => navigation.navigate("ShareConv", { convId })}
-        >
-          <Text style={styles.shareText}>Partager</Text>
-        </TouchableOpacity>
+        <View style={styles.rightButtons}>
+
+          <TouchableOpacity
+            style={styles.headerBtn}
+            onPress={() => navigation.navigate("EditConv", { convId })}
+          >
+            <Text style={styles.headerBtnText}>⋯</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.headerBtn}
+            onPress={() => navigation.navigate("ShareConv", { convId })}
+          >
+            <Text style={styles.headerBtnText}>QR</Text>
+          </TouchableOpacity>
+
+        </View>
+
       </View>
 
-      {/* ZONE DES MESSAGES */}
+      {/* ───────── MESSAGES ───────── */}
       {messages.length === 0 ? (
         <View style={styles.emptyContainer}>
           <Text style={styles.emptyText}>Aucun message pour le moment…</Text>
@@ -40,16 +96,16 @@ export default function ConversationViewScreen() {
       ) : (
         <FlatList
           data={messages}
-          keyExtractor={(item) => item.id.toString()}
-          renderItem={({ item }) => (
-            <Text style={{ color: "white" }}>{item.text}</Text>
-          )}
+          renderItem={renderItem}
+          keyExtractor={(item, index) => index.toString()}
+          style={{ flex: 1 }}
+          contentContainerStyle={{ padding: 20, paddingBottom: 100 }}
         />
       )}
 
-      {/* INPUT MESSAGE BIENTÔT */}
+      {/* ───────── INPUT FUTUR ───────── */}
       <View style={styles.inputBar}>
-        <Text style={{ color: "#555" }}>Barre d’écriture (...)</Text>
+        <Text style={{ color: "#555" }}>Barre d’écriture (à venir)</Text>
       </View>
 
     </View>
@@ -62,59 +118,74 @@ const styles = StyleSheet.create({
     backgroundColor:colors.background,
   },
 
-  /* --- HEADER --- */
   header:{
     flexDirection:"row",
-    justifyContent:"space-between",
     alignItems:"center",
+    justifyContent:"space-between",
+    padding:15,
     paddingTop:50,
-    paddingBottom:15,
-    paddingHorizontal:20,
     borderBottomWidth:1,
-    borderBottomColor:"#222"
+    borderBottomColor:"#222",
   },
 
   back:{
     color:colors.subtitle,
-    fontSize:16
+    fontSize:16,
   },
 
   title:{
     color:"white",
     fontSize:20,
-    fontWeight:"bold"
+    fontWeight:"bold",
+    maxWidth: 180,
+    textAlign: "center",
   },
 
-  shareButton:{
-    backgroundColor:colors.primary,
-    paddingVertical:8,
-    paddingHorizontal:12,
+  rightButtons:{
+    flexDirection:"row",
+    alignItems:"center",
+  },
+
+  headerBtn:{
+    marginLeft:10,
+    paddingHorizontal:10,
+    paddingVertical:4,
+    backgroundColor:"#333",
     borderRadius:8,
   },
 
-  shareText:{
+  headerBtnText:{
     color:"white",
     fontSize:14,
-    fontWeight:"bold"
   },
 
-  /* --- AUCUN MESSAGE --- */
   emptyContainer:{
     flex:1,
     justifyContent:"center",
-    alignItems:"center"
+    alignItems:"center",
   },
 
   emptyText:{
     color:"#666",
-    fontSize:16
+    fontSize:16,
   },
 
-  /* --- BARRE D'ÉCRITURE --- */
+  messageBubble:{
+    backgroundColor:"#1A1A1A",
+    padding:12,
+    borderRadius:10,
+    marginBottom:10,
+  },
+
+  msgText:{
+    color:"white",
+    fontSize:16,
+  },
+
   inputBar:{
     borderTopWidth:1,
     borderTopColor:"#222",
     padding:15,
-    alignItems:"center"
-  }
+    alignItems:"center",
+  },
 });

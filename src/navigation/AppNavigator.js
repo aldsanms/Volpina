@@ -1,5 +1,6 @@
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { AppState } from 'react-native';
 
 import LoginScreen from '../screens/LoginScreen';
 import PINScreen from '../screens/PINScreen';
@@ -9,6 +10,7 @@ import MenuConv from '../screens/MenuConv';
 import LockScreen from '../screens/LockScreen';
 import ConversationViewScreen from '../screens/ConversationViewScreen';
 import ShareConvScreen from '../screens/ShareConvScreen';
+import EditConvScreen from '../screens/EditConvScreen';
 
 import { getMasterHash, isSessionExpired } from '../utils/SessionManager';
 import { useState, useEffect, useRef } from 'react';
@@ -22,37 +24,63 @@ export default function AppNavigator() {
   const [logged, setLogged] = useState(null);
   const [isLocked, setLocked] = useState(false);
 
-  // ref navigation pour ouvrir PINScreen depuis triggerLock
   const navigationRef = useRef();
 
-  // Au chargement
+  // ─────────────────────────────────────────
+  // 1) Initialisation + fonction triggerLock()
+  // ─────────────────────────────────────────
   useEffect(() => {
 
     globalThis.triggerLock = () => {
-    setLogged("pin");
-    setLocked(true);
+      console.log("LOCK TRIGGERED");
 
-    setTimeout(() => {
-        navigationRef.current?.navigate("PIN"); 
-    }, 50);
+      setLocked(true);   // affiche LockScreen
+      setLogged("pin");  // demande de repasser par PIN
+
+      setTimeout(() => {
+        navigationRef.current?.navigate("PIN");
+      }, 50);
     };
 
     checkState();
   }, []);
 
-  // Vérifie mdp + session
+  // ─────────────────────────────────────────
+  // 2) Détecter si l'app passe en arrière-plan
+  // ─────────────────────────────────────────
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "background") {
+        console.log("APP EN BACKGROUND → VERROUILLAGE");
+        globalThis.triggerLock?.();
+      }
+    });
+
+    return () => sub.remove();
+  }, []);
+
+  // ─────────────────────────────────────────
+  // 3) Vérifier mot de passe + expiration session
+  // ─────────────────────────────────────────
   async function checkState() {
     const hasMaster = await getMasterHash();
-    if (!hasMaster) return setLogged(false);
+    if (!hasMaster) {
+      setLogged(false);
+      return;
+    }
 
     const expired = await isSessionExpired(10);
-    if (expired) return setLogged(false);
+    if (expired) {
+      setLogged(false);
+      return;
+    }
 
-    // Sinon PIN
-    setLogged("pin");
+    setLogged("pin");  // on demande PIN au démarrage
   }
 
-  // Chargement
+  // ─────────────────────────────────────────
+  // 4) Écran de chargement initial
+  // ─────────────────────────────────────────
   if (logged === null) {
     return (
       <View style={{
@@ -66,28 +94,27 @@ export default function AppNavigator() {
     );
   }
 
+  // ─────────────────────────────────────────
+  // 5) Navigation principale + LockScreen overlay
+  // ─────────────────────────────────────────
   return (
     <View style={{ flex: 1, backgroundColor: "#000" }}>
 
-      {/*  Écran de verrouillage (overlay) */}
       {isLocked && (
         <LockScreen unlocked={() => setLocked(false)} />
       )}
 
       <NavigationContainer ref={navigationRef}>
-
         <Stack.Navigator screenOptions={{ headerShown: false }}>
 
-          {/* ---------- LOGIN ---------- */}
+          {/* LOGIN */}
           {logged === false && (
             <Stack.Screen name="Login">
-              {() => (
-                <LoginScreen onSuccess={() => setLogged("pin")} />
-              )}
+              {() => <LoginScreen onSuccess={() => setLogged("pin")} />}
             </Stack.Screen>
           )}
 
-          {/* ---------- PIN (premier lancement ou retour session) ---------- */}
+          {/* PIN */}
           {logged === "pin" && (
             <Stack.Screen name="PIN">
               {() => (
@@ -99,7 +126,7 @@ export default function AppNavigator() {
             </Stack.Screen>
           )}
 
-          {/* ---------- APPLICATION ---------- */}
+          {/* APP */}
           {logged === "done" && (
             <>
               <Stack.Screen name="Main" component={TabNavigator} />
@@ -107,7 +134,9 @@ export default function AppNavigator() {
               <Stack.Screen name="ScanConversation" component={ScanConversation} />
               <Stack.Screen name="ConversationView" component={ConversationViewScreen} />
               <Stack.Screen name="ShareConv" component={ShareConvScreen} />
+              <Stack.Screen name="EditConv" component={EditConvScreen} />
 
+              {/* PIN auxiliaire si besoin */}
               <Stack.Screen name="PINScreen">
                 {() => (
                   <PINScreen

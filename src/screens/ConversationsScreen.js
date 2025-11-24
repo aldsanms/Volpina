@@ -1,28 +1,98 @@
+import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import * as FileSystem from 'expo-file-system/legacy';
 import colors from '../theme/colors';
 
-const fakeConversations = [
-  { id: '1', name: 'Lucas', lastMessage: 'Yo ça avance ?', time: '12:30' },
-  { id: '2', name: 'Roger', lastMessage: 'Oh, t y é les sang du coude', time: 'Hier' },
-  { id: '3', name: 'Roberto', lastMessage: 'Tuiii Bip Biip Bouuww', time: 'Mar' },
-];
-
 export default function ConversationsScreen() {
-  const navigation = useNavigation();
 
+  const navigation = useNavigation();
+  const [conversations, setConversations] = useState([]);
+
+  // ────────────────────────────────────────────────
+  // Lire le dernier message d’une conversation
+  // ────────────────────────────────────────────────
+  async function getLastMessage(convId) {
+    try {
+      const path = FileSystem.documentDirectory + `conv_${convId}.json`;
+      const raw = await FileSystem.readAsStringAsync(path);
+      const json = JSON.parse(raw);
+
+      if (json.messages && json.messages.length > 0) {
+        const last = json.messages[json.messages.length - 1];
+        return last.text;
+      }
+    } catch (_) {}
+
+    return null;
+  }
+
+  // ────────────────────────────────────────────────
+  // Charger toutes les conversations + enrichir avec le dernier message
+  // ────────────────────────────────────────────────
+  async function loadConversations() {
+    const path = FileSystem.documentDirectory + "conversations.json";
+
+    try {
+      const raw = await FileSystem.readAsStringAsync(path);
+      const data = JSON.parse(raw); // tableau brut
+
+      const enriched = [];
+
+      for (const conv of data) {
+        const last = await getLastMessage(conv.id);
+        enriched.push({
+          ...conv,
+          lastMessage: last,
+        });
+      }
+
+      setConversations(enriched);
+    } catch (e) {
+      console.log("Aucune conversation enregistrée.");
+      setConversations([]);
+    }
+  }
+
+  // Refresh à chaque fois qu’on revient sur cette page
+  useFocusEffect(
+    useCallback(() => {
+      loadConversations();
+    }, [])
+  );
+
+  // ────────────────────────────────────────────────
+  // Ouvrir une conversation
+  // ────────────────────────────────────────────────
+  const openConversation = (item) => {
+    navigation.navigate("ConversationView", { convId: item.id });
+  };
+
+  // ────────────────────────────────────────────────
+  // Une conversation dans la liste
+  // ────────────────────────────────────────────────
   const renderItem = ({ item }) => (
-    <TouchableOpacity style={styles.convCard}>
+    <TouchableOpacity
+      style={styles.convCard}
+      onPress={() => openConversation(item)}
+      onLongPress={() => navigation.navigate("EditConv", { convId: item.id })}
+      delayLongPress={300}
+    >
       <View style={styles.convLeft}>
         <View style={styles.avatar} />
         <View>
           <Text style={styles.name}>{item.name}</Text>
-          <Text style={styles.msg}>{item.lastMessage}</Text>
+
+          <Text style={styles.msg}>
+            {item.lastMessage ? item.lastMessage : "Aucun message…"}
+          </Text>
         </View>
       </View>
 
-      <Text style={styles.time}>{item.time}</Text>
+      <Text style={styles.time}>
+        {item.lastTime ? item.lastTime : ""}
+      </Text>
     </TouchableOpacity>
   );
 
@@ -39,21 +109,28 @@ export default function ConversationsScreen() {
       </View>
 
       {/* ─────── LISTE DES CONVERSATIONS ─────── */}
-      <FlatList
-        data={fakeConversations}
+        <FlatList
+        data={conversations}
         keyExtractor={(item) => item.id}
         renderItem={renderItem}
-        contentContainerStyle={{ padding: 20 }}
-      />
+        style={{ flex: 1 }}
+        contentContainerStyle={{ flexGrow: 1, padding: 20, paddingBottom: 140 }}
+        ListEmptyComponent={() => (
+        <View style={styles.emptyContainer}>
+            <Text style={styles.emptyTitle}>Aucune conversation pour le moment</Text>
+            <Text style={styles.emptySubtitle}>Appuie sur + pour en créer une 🦊</Text>
+        </View>
+        )}
 
-      {/* ─────── BOUTON EN BAS ─────── */}
+        />
+
+      {/* ─────── BOUTON AJOUT ─────── */}
       <TouchableOpacity
         style={styles.fab}
         onPress={() => navigation.navigate("MenuConv")}
       >
         <Text style={styles.fabText}>+</Text>
       </TouchableOpacity>
-
 
     </SafeAreaView>
   );
@@ -65,7 +142,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
 
-  /* ───────────── TOP BAR ───────────── */
+  // ───────── TOP BAR ─────────
   topBar: {
     width: '100%',
     flexDirection: 'row',
@@ -90,7 +167,7 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
   },
 
-  /* ───────────── LISTE ───────────── */
+  // ───────── CONV CARD ─────────
   convCard: {
     backgroundColor: '#1A1A1A',
     padding: 15,
@@ -131,25 +208,50 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
 
-  /* ───────────── BOUTONS EN BAS ───────────── */
-fab: {
-  position: 'absolute',
-  bottom: 25,
-  right: 25,
-  width: 60,
-  height: 60,
-  borderRadius: 12, // carré arrondi
-  backgroundColor: colors.primary,
-  justifyContent: 'center',
-  alignItems: 'center',
-  elevation: 10,
-},
+  // ───────── FLOATING BUTTON ─────────
+  fab: {
+    position: 'absolute',
+    bottom: 25,
+    right: 25,
+    width: 60,
+    height: 60,
+    borderRadius: 12,
+    backgroundColor: colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 10,
+  },
 
-fabText: {
-  color: 'white',
-  fontSize: 30,
-  fontWeight: 'bold',
-  marginTop: -2,
-}
+  fabText: {
+    color: 'white',
+    fontSize: 30,
+    fontWeight: 'bold',
+    marginTop: -2,
+  },
+
+  // ───────── FlatList ─────────
+    emptyContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 30,
+    marginTop: -50,
+    },
+
+    emptyTitle: {
+    color: "white",
+    fontSize: 22,
+    fontWeight: "700",
+    textAlign: "center",
+    marginBottom: 10,
+    },
+
+    emptySubtitle: {
+    color: colors.subtitle,
+    fontSize: 16,
+    textAlign: "center",
+    opacity: 0.75,
+    },
+
 
 });
