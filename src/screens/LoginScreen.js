@@ -1,158 +1,129 @@
-import { useState, useEffect } from 'react';
-import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  StyleSheet,
-  Image,
-  KeyboardAvoidingView,
-  ScrollView,
-  Platform
-} from 'react-native';
+// src/screens/LoginScreen.js
 
+import { useState, useEffect } from 'react';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform, Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Crypto from 'expo-crypto';
 import colors from '../theme/colors';
-import { createSession } from '../utils/SessionManager';
+
+import {
+  saveMasterHash,
+  getMasterHash,
+  getEncryptedMasterKey,
+  saveEncryptedMasterKey,
+  increaseMDPAttempts,
+  resetMDPAttempts,
+  getMDPBlockUntil,
+  setMDPBlockUntil,
+  wipeEverything,
+  createSession
+} from '../utils/SessionManager';
+
+import { generateMasterKey, encryptAES256GCM } from '../utils/cryptoUtils';
 
 export default function LoginScreen({ onSuccess }) {
 
-  const [password, setPassword] = useState('');
-  const [storedHash, setStoredHash] = useState(null);
-  const [firstTime, setFirstTime] = useState(true);
+  const [password, setPassword] = useState("");
+  const [masterHash, setMasterHash] = useState(null);
+  const [blockedUntil, setBlockedUntil] = useState(0);
+  const isBlocked = Date.now() < blockedUntil;
 
   useEffect(() => {
-    loadHash();
+    (async () => {
+      setMasterHash(await getMasterHash());
+      setBlockedUntil(await getMDPBlockUntil());
+    })();
   }, []);
 
-  const loadHash = async () => {
-    const saved = await AsyncStorage.getItem('volpina_master_hash');
-    if (saved) {
-      setStoredHash(saved);
-      setFirstTime(false);
-    }
-  };
-
   const handleLogin = async () => {
+    if (isBlocked) {
+      Alert.alert("Bloqué", "Trop de tentatives. Réessaye plus tard.");
+      return;
+    }
+
+    // Calcul du hash avec le même salt qu'à l'enregistrement
     const hash = await Crypto.digestStringAsync(
       Crypto.CryptoDigestAlgorithm.SHA256,
-      'VOLPINA_MASTER_KEY' + password
+      "VOLPINA_MASTER_KEY" + password
     );
 
-    if (firstTime) {
-      await AsyncStorage.setItem('volpina_master_hash', hash);
+    // PREMIÈRE UTILISATION → création du mot de passe
+    if (!masterHash) {
+      const masterKey = await generateMasterKey();
+      const encrypted = await encryptAES256GCM(password, masterKey);
+
+      await saveMasterHash(hash);
+      await saveEncryptedMasterKey(encrypted);
       await createSession();
+      await resetMDPAttempts();
+
       onSuccess();
-    } else {
-      if (hash === storedHash) {
-        await createSession();
-        onSuccess();
-      } else {
-        alert('Mot de passe incorrect.');
-      }
+      return;
     }
+
+    // MAUVAIS MOT DE PASSE
+    if (hash !== masterHash) {
+      const attempts = await increaseMDPAttempts();
+
+      if (attempts === 3) await setMDPBlockUntil(Date.now() + 60_000);
+      if (attempts === 6) await setMDPBlockUntil(Date.now() + 5 * 60_000);
+
+      if (attempts >= 9) {
+        await wipeEverything();
+        Alert.alert("Sécurité", "Toutes les données ont été effacées après 9 tentatives.");
+        return;
+      }
+
+      Alert.alert("Mot de passe incorrect", "Réessayez.");
+      return;
+    }
+
+    // BON MOT DE PASSE
+    let encryptedMasterKey = await getEncryptedMasterKey();
+    if (!encryptedMasterKey) {
+      const masterKey = await generateMasterKey();
+      encryptedMasterKey = await encryptAES256GCM(password, masterKey);
+      await saveEncryptedMasterKey(encryptedMasterKey);
+    }
+
+    await createSession();
+    await resetMDPAttempts();
+
+    onSuccess();
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.background }}>
+    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+      <Text style={styles.title}>Volpina</Text>
+      <Text style={styles.subtitle}>
+        {masterHash ? "Entrer votre mot de passe" : "Créer un mot de passe"}
+      </Text>
 
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={{ flex: 1 }}
-      >
+      {isBlocked && <Text style={styles.blockMsg}>Trop de tentatives. Réessayez plus tard.</Text>}
 
-        <ScrollView
-          contentContainerStyle={styles.container}
-          keyboardShouldPersistTaps="handled"
-        >
+      <TextInput
+        secureTextEntry
+        placeholder="Mot de passe"
+        placeholderTextColor={colors.subtitle}
+        style={styles.input}
+        value={password}
+        onChangeText={setPassword}
+        onSubmitEditing={handleLogin}
+      />
 
-          <Image
-            source={require('../theme/volpina_logo.png')}
-            style={styles.logo}
-          />
-
-          <Text style={styles.title}>Volpina</Text>
-
-          <Text style={styles.subtitle}>
-            {firstTime ? 'Créer un mot de passe' : 'Entrer votre mot de passe'}
-          </Text>
-
-          <TextInput
-            secureTextEntry
-            placeholder="Mot de passe"
-            placeholderTextColor={colors.subtitle}
-            style={styles.input}
-            value={password}
-            onChangeText={setPassword}
-            onSubmitEditing={handleLogin}
-            returnKeyType="done"
-          />
-
-          <TouchableOpacity style={styles.button} onPress={handleLogin}>
-            <Text style={styles.buttonText}>
-              {firstTime ? 'Créer' : 'Continuer'}
-            </Text>
-          </TouchableOpacity>
-
-        </ScrollView>
-
-      </KeyboardAvoidingView>
-
-    </View>
+      <TouchableOpacity style={styles.button} onPress={handleLogin}>
+        <Text style={styles.buttonText}>{masterHash ? "Continuer" : "Créer"}</Text>
+      </TouchableOpacity>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flexGrow: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: colors.background,
-    paddingVertical: 40,
-    paddingHorizontal: 20,
-  },
-
-  logo: {
-    width: 120,
-    height: 120,
-    marginBottom: 20,
-  },
-
-  title: {
-    fontSize: 38,
-    color: colors.text,
-    fontWeight: 'bold',
-  },
-
-  subtitle: {
-    color: colors.subtitle,
-    fontSize: 16,
-    marginBottom: 20,
-  },
-
-  input: {
-    width: '75%',
-    padding: 12,
-    borderWidth: 1,
-    borderColor: colors.subtitle,
-    borderRadius: 10,
-    color: colors.text,
-    marginBottom: 20,
-    backgroundColor: '#111',
-  },
-
-  button: {
-    backgroundColor: colors.primary,
-    paddingVertical: 12,
-    paddingHorizontal: 45,
-    borderRadius: 12,
-    marginTop: 5,
-  },
-
-  buttonText: {
-    color: 'white',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
+  container:{ flex:1,backgroundColor:colors.background,justifyContent:'center',alignItems:'center' },
+  title:{ color:'white',fontSize:38,fontWeight:'bold',marginBottom:10 },
+  subtitle:{ color:colors.subtitle,fontSize:16,marginBottom:20 },
+  blockMsg:{ color:'red',marginBottom:10 },
+  input:{ width:'70%',padding:12,borderWidth:1,borderColor:'#444',borderRadius:10,color:'white',marginBottom:20 },
+  button:{ backgroundColor:colors.primary,paddingVertical:12,paddingHorizontal:45,borderRadius:12 },
+  buttonText:{ color:'white',fontSize:18 }
 });
