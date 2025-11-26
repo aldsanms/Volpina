@@ -1,16 +1,33 @@
-import * as Crypto from 'expo-crypto';
-import { Buffer } from 'buffer'; 
+import CryptoJS from "crypto-js";
 
-export async function generateConversationKey() {
-  const randomBytes = await Crypto.getRandomBytesAsync(32);
-  return Buffer.from(randomBytes).toString('base64'); 
+// AES encrypt
+export function aesEncrypt(plaintext, keyStr) {
+  const key = CryptoJS.enc.Utf8.parse(keyStr);
+  const iv = CryptoJS.enc.Utf8.parse(keyStr.substring(0, 16));
+
+  const encrypted = CryptoJS.AES.encrypt(plaintext, key, {
+    iv: iv,
+    padding: CryptoJS.pad.Pkcs7,
+    mode: CryptoJS.mode.CBC,
+  });
+
+  return encrypted.toString();
 }
 
-export function generateConversationID(length = 20) {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
-  let id = '';
-  for (let i = 0; i < length; i++) {
-    id += chars.charAt(Math.floor(Math.random() * chars.length));
+// AES decrypt
+export function aesDecrypt(ciphertext, keyStr) {
+  try {
+    const key = CryptoJS.enc.Utf8.parse(keyStr);
+    const iv = CryptoJS.enc.Utf8.parse(keyStr.substring(0, 16));
+
+    const decrypted = CryptoJS.AES.decrypt(ciphertext, key, {
+      iv: iv,
+      padding: CryptoJS.pad.Pkcs7,
+      mode: CryptoJS.mode.CBC,
+    });
+
+    return decrypted.toString(CryptoJS.enc.Utf8);
+  } catch {
+    return null;
   }
-  return id;
 }

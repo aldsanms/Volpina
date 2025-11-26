@@ -127,7 +127,7 @@ export default function ConversationsScreen() {
       {/* ─────── BOUTON AJOUT ─────── */}
       <TouchableOpacity
         style={styles.fab}
-        onPress={() => navigation.navigate("MenuConv")}
+        onPress={() => navigation.getParent().navigate("MenuConv")}
       >
         <Text style={styles.fabText}>+</Text>
       </TouchableOpacity>
