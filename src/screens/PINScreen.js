@@ -1,11 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Crypto from 'expo-crypto';
 
 import colors from '../theme/colors';
 import { aesEncrypt, aesDecrypt } from '../utils/cryptoUtils';
-import { resetToMaster, setLastActive } from '../utils/SessionManager';
+import { resetToMaster, setLastActive, isSessionExpired } from '../utils/SessionManager';
+import securityConfig from '../config/securityConfig';
 
 export default function PINScreen({ onSuccess, setLogged }) {
 
@@ -17,20 +19,34 @@ export default function PINScreen({ onSuccess, setLogged }) {
     loadPIN();
   }, []);
 
+  useFocusEffect(
+  useCallback(() => {
+    let timer = setInterval(async () => {
+
+      const expired = await isSessionExpired(securityConfig.SESSION_TIMEOUT_MINUTES);
+
+      if (expired) {
+        console.log("PINScreen → Session expirée → retour master");
+        setLogged(false);   //  renvoie à l'écran mot de passe
+      }
+
+    }, 2000);   // toutes les 2 secondes
+
+    return () => clearInterval(timer);
+  }, [])
+);
+
+
   const loadPIN = async () => {
     const saved = await AsyncStorage.getItem("volpina_pin_hash");
-    if (saved) {
-      setStoredHash(saved);
-      setCreating(false);
-    } else {
-      setCreating(true);
-    }
+    setStoredHash(saved);
+    setCreating(!saved);
   };
 
   const pressDigit = async (digit) => {
     const newPin = pin + digit;
+    await setLastActive();
     setPin(newPin);
-
     if (newPin.length !== 4) return;
 
     const H_pin = await Crypto.digestStringAsync(
@@ -38,7 +54,6 @@ export default function PINScreen({ onSuccess, setLogged }) {
       "VOLPINA_PIN" + newPin
     );
 
-    // CREATION
     if (creating) {
       const H_master = globalThis.session_Hmaster;
       if (!H_master) {
@@ -48,7 +63,6 @@ export default function PINScreen({ onSuccess, setLogged }) {
       }
 
       const encryptedMaster = aesEncrypt(H_master, H_pin);
-
       await AsyncStorage.setItem("volpina_pin_hash", H_pin);
       await AsyncStorage.setItem("volpina_master_encrypted", encryptedMaster);
 
@@ -57,7 +71,6 @@ export default function PINScreen({ onSuccess, setLogged }) {
       return;
     }
 
-    // AUTHENTICATION
     if (H_pin === storedHash) {
       const encryptedMaster = await AsyncStorage.getItem("volpina_master_encrypted");
       if (!encryptedMaster) {
@@ -74,13 +87,11 @@ export default function PINScreen({ onSuccess, setLogged }) {
       }
 
       globalThis.session_Hmaster = H_master;
-
       await setLastActive();
-      onSuccess();
+      onSuccess();  // <=== géré par AppNavigator
       return;
     }
 
-    // MAUVAIS PIN
     await resetToMaster();
     setLogged(false);
   };

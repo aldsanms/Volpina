@@ -1,5 +1,6 @@
 import { View, Text, StyleSheet, Image, Animated, PanResponder } from 'react-native';
 import { useEffect, useState, useRef } from 'react';
+import { isSessionExpired } from '../utils/SessionManager';
 
 export default function LockScreen({ unlocked }) {
 
@@ -46,20 +47,22 @@ export default function LockScreen({ unlocked }) {
               duration: 250,
               useNativeDriver: true,
             })
-          ]).start(() => unlocked());
+          ]).start(() => handleUnlock());
         } else {
           Animated.spring(translateY, {
             toValue: 0,
             useNativeDriver: true,
-          }).start(() => {
-            fade.setValue(1);
-          });
+          }).start(() => fade.setValue(1));
         }
       }
     })
   ).current;
 
-  //  Opacité dynamique liée au scroll
+  async function handleUnlock() {
+    const expired = await isSessionExpired();
+    unlocked(expired ? "expired" : "valid");
+  }
+
   const dragOpacity = translateY.interpolate({
     inputRange: [-250, 0],
     outputRange: [0, 1],
@@ -73,7 +76,7 @@ export default function LockScreen({ unlocked }) {
         styles.container,
         {
           transform: [{ translateY }],
-          opacity: Animated.multiply(dragOpacity, fade)  //  combine fade + scroll
+          opacity: Animated.multiply(dragOpacity, fade)
         }
       ]}
     >

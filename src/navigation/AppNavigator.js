@@ -22,16 +22,21 @@ const Stack = createNativeStackNavigator();
 
 export default function AppNavigator() {
 
-  const [logged, setLogged] = useState(null);
+  const [logged, setLogged] = useState(null);   // false = master password, "pin", "done"
   const [isLocked, setLocked] = useState(false);
+  const [authLocked, setAuthLocked] = useState(true);   // empêche affichage des écrans Main
   const navigationRef = useRef();
 
   useEffect(() => {
+
     globalThis.triggerLock = () => {
-      console.log("LOCK TRIGGERED");
-      setLocked(true);
-      setLogged("pin");
-    };
+  console.log("LOCK TRIGGERED");
+
+  setAuthLocked(true);   // on verrouille la navigation
+  setLogged("pin");      // le PIN devient l’écran courant
+  setLocked(true);       // on affiche l’overlay LockScreen
+};
+
 
     checkState();
   }, []);
@@ -43,42 +48,38 @@ export default function AppNavigator() {
     return () => sub.remove();
   }, []);
 
-async function checkState() {
-  console.log("checkState — début");
+  async function checkState() {
+    console.log("checkState — début");
 
-  const testCipher = await AsyncStorage.getItem("volpina_test_cipher");
-  console.log("testCipher =", testCipher);
+    const testCipher = await AsyncStorage.getItem("volpina_test_cipher");
 
-  if (!testCipher) {
-    console.log("→ Aucun testCipher → setLogged(false)");
-    setLogged(false);           
-    return;
+    if (!testCipher) {
+      console.log("→ Aucun master → création");
+      setLogged(false);
+      return;
+    }
+
+    const sessionCreated = await getSessionCreated();
+    const lastActive = await getLastActive();
+
+    if (!sessionCreated || !lastActive) {
+      console.log("→ Session inexistante → demander master");
+      setLogged(false);
+      return;
+    }
+
+    const expired = await isSessionExpired(securityConfig.SESSION_TIMEOUT_MINUTES);
+
+    if (expired) {
+      console.log("→ Session expirée → master");
+      setLogged(false);
+      return;
+    }
+
+    // Sinon → PIN
+    console.log("→ Session valide → PIN");
+    setLogged("pin");
   }
-
-  const sessionCreated = await getSessionCreated();
-  const lastActive = await getLastActive();
-
-    const MAX_MINUTES = securityConfig.SESSION_TIMEOUT_MINUTES;
-
-  if (!sessionCreated || !lastActive) {
-    console.log("→ Pas de session → demander mot de passe");
-    setLogged(false);
-    return;
-  }
-
-  const now = Date.now();
-  const inactiveMs = now - lastActive;
-
-  if (inactiveMs > MAX_MINUTES * 60000) {
-    console.log("→ Session expirée : demander mot de passe maître");
-    setLogged(false);              
-    return;
-  }
-
-  console.log("→ Session valide → aller au PIN");
-  setLogged("pin");
-}
-
 
   if (logged === null) {
     return (
@@ -90,33 +91,61 @@ async function checkState() {
 
   return (
     <View style={{ flex: 1 }}>
-      {isLocked && <LockScreen unlocked={() => setLocked(false)} />}
+      {isLocked && (
+        <LockScreen
+          unlocked={(state) => {
+            console.log("LockScreen result =", state);
+
+            if (state === "expired") {
+              setLogged(false);    // MASTER
+            } else {
+              setLogged("pin");    // PIN
+            }
+
+            // IMPORTANT : on enlève LockScreen APRÈS avoir défini logged
+            setTimeout(() => {
+              setLocked(false);
+            }, 1);
+          }}
+        />
+      )}
 
       <NavigationContainer ref={navigationRef}>
         <Stack.Navigator screenOptions={{ headerShown:false }}>
 
-          {/* LOGIN → création du mot de passe */}
-          {logged === false && (
-            <Stack.Screen name="Login">
-              {() => <LoginScreen onSuccess={(v)=> setLogged(v)} />}
-            </Stack.Screen>
-          )}
-
-          {/* PIN */}
-          {logged === "pin" && (
-            <Stack.Screen name="PIN">
-              {() => (
-                <PINScreen
-                  onSuccess={() => setLogged("done")}
-                  setLogged={setLogged}
-                />
-              )}
-            </Stack.Screen>
-          )}
-
-          {/* APP COMPLÈTE */}
-          {logged === "done" && (
+          {/*  AuthLocked → On ne montre que Login ou PIN */}
+          {authLocked ? (
             <>
+              {logged === false && (
+                <Stack.Screen name="Login">
+                  {() => (
+                    <LoginScreen
+                      onSuccess={(mode) => {
+                        setLogged(mode);
+                        // si mode = "pin", on reste authLocked = true
+                      }}
+                    />
+                  )}
+                </Stack.Screen>
+              )}
+
+              {logged === "pin" && (
+                <Stack.Screen name="PIN">
+                  {() => (
+                    <PINScreen
+                      onSuccess={() => {
+                        setLogged("done");
+                        setAuthLocked(false);   //  libère l’accès à Main
+                      }}
+                      setLogged={setLogged}
+                    />
+                  )}
+                </Stack.Screen>
+              )}
+            </>
+          ) : (
+            <>
+              {/*  App déverrouillée */}
               <Stack.Screen name="Main" component={TabNavigator} />
               <Stack.Screen name="MenuConv" component={MenuConv} />
               <Stack.Screen name="ScanConversation" component={ScanConversation} />
