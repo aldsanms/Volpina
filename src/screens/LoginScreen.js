@@ -6,7 +6,6 @@ import {
 import * as FileSystem from 'expo-file-system/legacy';
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as Crypto from 'expo-crypto';
 import * as Haptics from 'expo-haptics';
 import colors from '../theme/colors';
 import { aesEncrypt, aesDecrypt } from '../utils/cryptoUtils';
@@ -75,10 +74,8 @@ export default function LoginScreen({ onSuccess }) {
             return;
         }
 
-        const H_master = await Crypto.digestStringAsync(
-            Crypto.CryptoDigestAlgorithm.SHA256,
-            "VOLPINA_MASTER_KEY" + password
-        );
+        const H_master = CryptoJS.SHA256("VOLPINA_MASTER_KEY" + password).toString();
+
 
         // -------- Création du mot de passe --------
         if (firstTime) {

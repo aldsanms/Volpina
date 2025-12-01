@@ -1,160 +1,99 @@
-import React, { useState, useEffect } from "react";
-import { View, Text, TextInput, StyleSheet, TouchableOpacity } from "react-native";
-import { useNavigation, useRoute } from "@react-navigation/native";
-import * as FileSystem from "expo-file-system/legacy";
+import React, { useEffect, useState } from "react";
+import { View, Text, TouchableOpacity, Alert } from "react-native";
+import QRCode from "react-native-qrcode-svg";
 import colors from "../theme/colors";
 
-export default function EditConvScreen() {
+import { saveConversation, generateSecureKey } from "../utils/ConversationManager";
 
-  const navigation = useNavigation();
-  const route = useRoute();
-  const { convId } = route.params;
+export default function EditConvScreen({ navigation }) {
 
-  const [convName, setConvName] = useState("");
+  const [qr, setQr] = useState(null);
+  const [convId, setConvId] = useState(null);
 
   useEffect(() => {
-    loadConvData();
+    createConversationAuto();
   }, []);
 
-  async function loadConvData() {
-    const path = FileSystem.documentDirectory + "conversations.json";
-
-    try {
-      const raw = await FileSystem.readAsStringAsync(path);
-      const list = JSON.parse(raw);
-      const conv = list.find(c => c.id === convId);
-
-      if (conv) setConvName(conv.name);
-    } catch (e) {
-      console.log("Erreur lecture conversation", e);
-    }
+  function generateId() {
+    return Math.random().toString(36).substring(2, 12);
   }
 
-  async function save() {
-    const path = FileSystem.documentDirectory + "conversations.json";
-
+  async function createConversationAuto() {
     try {
-      const raw = await FileSystem.readAsStringAsync(path);
-      let list = JSON.parse(raw);
+      const pinHash = globalThis.session_pinHash;
 
-      list = list.map(c =>
-        c.id === convId ? { ...c, name: convName } : c
-      );
+      if (!pinHash) {
+        Alert.alert("Erreur interne", "pinHash manquant");
+        return;
+      }
 
-      await FileSystem.writeAsStringAsync(path, JSON.stringify(list));
-    } catch (e) {
-      console.log("Erreur sauvegarde", e);
-    }
+      const id = generateId();
+      const key_conv = await generateSecureKey(); // 🔥 version expo-safe
 
-    navigation.goBack();
-  }
+      const conv = {
+        id,
+        title: "Conversation",
+        key_conv,
+        participants: [],
+        messages: []
+      };
 
-  async function deleteConv() {
-    const path = FileSystem.documentDirectory + "conversations.json";
+      await saveConversation(conv, pinHash);
 
-    try {
-      const raw = await FileSystem.readAsStringAsync(path);
-      let list = JSON.parse(raw);
-
-      list = list.filter(c => c.id !== convId);
-
-      await FileSystem.writeAsStringAsync(path, JSON.stringify(list));
-
-      // Supprime aussi le fichier messages
-      const msgPath = FileSystem.documentDirectory + `conv_${convId}.json`;
-      await FileSystem.deleteAsync(msgPath, { idempotent: true });
+      setConvId(id);
+      setQr(JSON.stringify({ id, key: key_conv }));
 
     } catch (e) {
-      console.log("Erreur suppression", e);
+      console.log("❌ ERREUR createConversationAuto:", e);
+      Alert.alert("Erreur", e.message || "Erreur inconnue");
     }
-
-    navigation.navigate("Main");
   }
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Modifier la conversation</Text>
+    <View style={{
+      flex: 1,
+      justifyContent: "center",
+      alignItems: "center",
+      backgroundColor: colors.background,
+      padding: 20
+    }}>
 
-      <TextInput
-        style={styles.input}
-        value={convName}
-        onChangeText={setConvName}
-        placeholder="Nom de la conversation"
-        placeholderTextColor={colors.subtitle}
-      />
+      {!qr ? (
+        <Text style={{ color: "white", fontSize: 20 }}>Création…</Text>
+      ) : (
+        <>
+          <Text style={{ color: "white", fontSize: 22, marginBottom: 20 }}>
+            Nouvelle conversation
+          </Text>
 
-      <TouchableOpacity style={styles.saveBtn} onPress={save}>
-        <Text style={styles.saveText}>Enregistrer</Text>
-      </TouchableOpacity>
+          <QRCode
+            value={qr}
+            size={220}
+            color="white"
+            backgroundColor="black"
+          />
 
-      <TouchableOpacity style={styles.deleteBtn} onPress={deleteConv}>
-        <Text style={styles.deleteText}>Supprimer la conversation</Text>
-      </TouchableOpacity>
+          <TouchableOpacity
+            style={{
+              marginTop: 40,
+              backgroundColor: colors.primary,
+              padding: 14,
+              borderRadius: 10
+            }}
+            onPress={() => navigation.navigate("ConversationView", { convId })}
+          >
+            <Text style={{ color: "white", fontSize: 18 }}>Entrer dans la conversation</Text>
+          </TouchableOpacity>
 
-      <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
-        <Text style={styles.backText}>Retour</Text>
-      </TouchableOpacity>
+          <TouchableOpacity
+            style={{ marginTop: 15, padding: 10 }}
+            onPress={() => navigation.goBack()}
+          >
+            <Text style={{ color: "#888" }}>Annuler</Text>
+          </TouchableOpacity>
+        </>
+      )}
+
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-    padding: 20,
-    justifyContent: "center"
-  },
-
-  title: {
-    color: colors.text,
-    fontSize: 24,
-    marginBottom: 25,
-    textAlign: "center",
-    fontWeight: "bold"
-  },
-
-  input: {
-    borderWidth: 1,
-    borderColor: "#444",
-    padding: 12,
-    borderRadius: 10,
-    color: colors.text,
-    marginBottom: 25
-  },
-
-  saveBtn: {
-    backgroundColor: colors.primary,
-    paddingVertical: 12,
-    borderRadius: 10,
-    marginBottom: 20
-  },
-
-  saveText: {
-    color: "white",
-    textAlign: "center",
-    fontWeight: "bold"
-  },
-
-  deleteBtn: {
-    backgroundColor: "#700",
-    paddingVertical: 12,
-    borderRadius: 10,
-    marginBottom: 40
-  },
-
-  deleteText: {
-    color: "white",
-    textAlign: "center",
-    fontWeight: "bold"
-  },
-
-  backBtn: {
-    paddingVertical: 10
-  },
-
-  backText: {
-    color: colors.subtitle,
-    textAlign: "center"
-  }
-});

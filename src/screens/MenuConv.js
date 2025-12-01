@@ -1,120 +1,32 @@
-import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
-import { useEffect, useState } from 'react';
-import * as FileSystem from 'expo-file-system/legacy';
-import colors from '../theme/colors';
+import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
+import colors from "../theme/colors";
 
-// 🔥 Générateur d’ID compatible Expo (remplace uuid)
-function generateId() {
-  return 'xxxxxxxxxxxx4xxxyxxxxxxxxxxxxxxx'.replace(/[xy]/g, c => {
-    const r = (Math.random() * 16) | 0;
-    const v = c === 'x' ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
-}
-
-export default function MenuConv() {
-
-  const navigation = useNavigation();
-
-  // ─────────── Message aléatoire ───────────
-  const messages = [
-    "Que veux-tu faire ?",
-    "Une nouvelle aventure ?",
-    "Avec qui veux-tu parler ?",
-    "Nouvelle mission ou rejoindre quelqu’un ?",
-    "On lance quoi maintenant ? 🔥",
-    "Volpina attend tes ordres 🦊",
-  ];
-
-  const [message, setMessage] = useState("");
-
-  useEffect(() => {
-    const random = Math.floor(Math.random() * messages.length);
-    setMessage(messages[random]);
-  }, []);
-
-  // ─────────── Créer une nouvelle conversation ───────────
-  async function handleCreateConv() {
-    console.log("handleCreateConv");
-
-    const convId = generateId();
-    const secretKey = generateId();
-
-    console.log("generated IDs:", convId, secretKey);
-
-    const path = FileSystem.documentDirectory + "conversations.json";
-    let existing = [];
-
-    console.log("prestry");
-
-    try {
-      const raw = await FileSystem.readAsStringAsync(path);
-      console.log("try: conversations.json found");
-      existing = JSON.parse(raw);
-    } catch (e) {
-      console.log("catch: conversations.json not found");
-      existing = [];
-    }
-
-    console.log("existing:", existing);
-
-    // Ajout de la nouvelle conversation
-    existing.push({
-      id: convId,
-      key: secretKey,
-      name: "Nouvelle conversation",
-      createdAt: Date.now()
-    });
-
-    // Sauvegarde conversations.json
-    await FileSystem.writeAsStringAsync(path, JSON.stringify(existing));
-
-    // Fichier messages vide
-    const convPath = FileSystem.documentDirectory + `conv_${convId}.json`;
-    await FileSystem.writeAsStringAsync(convPath, JSON.stringify({ messages: [] }));
-
-    console.log("NAVIGATE → ConversationView", convId);
-
-    // Délai pour éviter d'être bloqué par LockScreen overlay
-    setTimeout(() => {
-      navigation.navigate("ConversationView", { convId });
-    }, 150);
-  }
+export default function MenuConv({ navigation }) {
 
   return (
     <View style={styles.container}>
+      <Text style={styles.title}>Nouvelle conversation</Text>
 
-      {/* ——— Logo ——— */}
-      <Image 
-        source={require('../theme/volpina_logo.png')}
-        style={styles.logo}
-      />
-
-      {/* ——— Message aléatoire ——— */}
-      <Text style={styles.title}>{message}</Text>
-
-      {/* ——— Bouton créer ——— */}
-      <TouchableOpacity style={styles.button} onPress={handleCreateConv}>
+      <TouchableOpacity
+        style={styles.button}
+        onPress={() => navigation.navigate("EditConv")}
+      >
         <Text style={styles.buttonText}>Créer une conversation</Text>
       </TouchableOpacity>
 
-      {/* ——— Bouton rejoindre ——— */}
-      <TouchableOpacity 
-        style={[styles.button, styles.buttonSecondary]}
+      <TouchableOpacity
+        style={styles.button}
         onPress={() => navigation.navigate("ScanConversation")}
       >
         <Text style={styles.buttonText}>Rejoindre une conversation</Text>
       </TouchableOpacity>
 
-      {/* ——— Retour ——— */}
-      <TouchableOpacity 
-        style={styles.backButton}
+      <TouchableOpacity
+        style={[styles.button, { backgroundColor:"#333" }]}
         onPress={() => navigation.goBack()}
       >
-        <Text style={styles.backText}>Retour</Text>
+        <Text style={styles.buttonText}>Annuler</Text>
       </TouchableOpacity>
-
     </View>
   );
 }
@@ -122,51 +34,26 @@ export default function MenuConv() {
 const styles = StyleSheet.create({
   container:{
     flex:1,
-    backgroundColor: colors.background,
-    justifyContent:'center',
-    alignItems:'center',
-    paddingHorizontal:20
+    backgroundColor:colors.background,
+    justifyContent:"center",
+    alignItems:"center",
+    padding:30
   },
-
-  logo:{
-    width:90,
-    height:90,
-    marginBottom:25
-  },
-
   title:{
+    color:"white",
     fontSize:26,
-    color:colors.text,
-    marginBottom:40,
-    textAlign:'center'
+    marginBottom:40
   },
-
   button:{
     backgroundColor:colors.primary,
-    paddingVertical:15,
-    paddingHorizontal:25,
+    paddingVertical:14,
+    paddingHorizontal:40,
     borderRadius:12,
-    width:'100%',
     marginBottom:20
   },
-
-  buttonSecondary:{
-    backgroundColor:"#333"
-  },
-
   buttonText:{
-    textAlign:'center',
-    color:'white',
+    color:"white",
     fontSize:18,
-    fontWeight:'600'
-  },
-
-  backButton:{
-    marginTop:20
-  },
-
-  backText:{
-    color:colors.subtitle,
-    fontSize:16
+    fontWeight:"bold"
   }
 });

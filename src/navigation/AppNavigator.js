@@ -23,6 +23,12 @@ const Stack = createNativeStackNavigator();
 export default function AppNavigator() {
 
   const [logged, setLogged] = useState(null);   // false = master password, "pin", "done"
+  globalThis.setLogged = setLogged;
+  globalThis.unlockApp = () => {
+  setLogged("done");
+  setAuthLocked(false);
+};
+
   const [isLocked, setLocked] = useState(false);
   const [authLocked, setAuthLocked] = useState(true);   // empêche affichage des écrans Main
   const navigationRef = useRef();
@@ -48,38 +54,56 @@ export default function AppNavigator() {
     return () => sub.remove();
   }, []);
 
-  async function checkState() {
-    console.log("checkState — début");
+async function checkState() {
+  console.log("checkState — début");
 
-    const testCipher = await AsyncStorage.getItem("volpina_test_cipher");
+  const testCipher = await AsyncStorage.getItem("volpina_test_cipher");
 
-    if (!testCipher) {
-      console.log("→ Aucun master → création");
-      setLogged(false);
-      return;
-    }
-
-    const sessionCreated = await getSessionCreated();
-    const lastActive = await getLastActive();
-
-    if (!sessionCreated || !lastActive) {
-      console.log("→ Session inexistante → demander master");
-      setLogged(false);
-      return;
-    }
-
-    const expired = await isSessionExpired(securityConfig.SESSION_TIMEOUT_MINUTES);
-
-    if (expired) {
-      console.log("→ Session expirée → master");
-      setLogged(false);
-      return;
-    }
-
-    // Sinon → PIN
-    console.log("→ Session valide → PIN");
-    setLogged("pin");
+  // 📌 Cas 1 : première installation → aucun master password
+  if (!testCipher) {
+    console.log("→ Aucun master → demande login");
+    setLogged(false);
+    setAuthLocked(true);
+    return;
   }
+
+  // 📌 Cas 2 : master existe → vérifier session
+  const sessionCreated = await getSessionCreated();
+  const lastActive      = await getLastActive();
+
+  if (!sessionCreated || !lastActive) {
+    console.log("→ Pas de session → demander master");
+    setLogged(false);
+    setAuthLocked(true);
+    return;
+  }
+
+  const expired = await isSessionExpired(securityConfig.SESSION_TIMEOUT_MINUTES);
+
+  if (expired) {
+    console.log("→ Session expirée → demander master");
+    setLogged(false);
+    setAuthLocked(true);
+    return;
+  }
+
+  // 📌 Cas 3 : session OK → charger automatiquement pinHash
+  const storedPinHash = await AsyncStorage.getItem("volpina_pin_hash");
+
+  if (!storedPinHash) {
+    console.log("⚠️ SESSION OK mais pinHash absent → forcer écran PIN");
+    setLogged("pin");
+    setAuthLocked(true);
+    return;
+  }
+
+  globalThis.session_pinHash = storedPinHash;
+
+  console.log("→ Session valide → PIN");
+  setLogged("pin");
+  setAuthLocked(true);
+}
+
 
   if (logged === null) {
     return (

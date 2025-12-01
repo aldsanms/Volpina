@@ -1,92 +1,99 @@
-import { useState, useEffect } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
-import { CameraView, useCameraPermissions } from 'expo-camera';
-import colors from '../theme/colors';
+import { useState, useEffect, useRef } from "react";
+import { View, Text, StyleSheet } from "react-native";
+import { Camera, CameraView } from "expo-camera";
+import colors from "../theme/colors";
+import { saveConversation } from "../utils/ConversationManager";
 
-export default function ScanConversation() {
-  const [permission, requestPermission] = useCameraPermissions();
-  const [scanned, setScanned] = useState(false);
-  const [qrData, setQrData] = useState(null);
+export default function ScanConversation({ navigation }) {
+  const [permission, setPermission] = useState(null);
+  const scanningRef = useRef(true);
 
-  // Demander la permission au démarrage
   useEffect(() => {
-    if (!permission) {
-      requestPermission();
-    }
+    (async () => {
+      const { status } = await Camera.requestCameraPermissionsAsync();
+      setPermission(status === "granted");
+    })();
   }, []);
 
-  // Gestion du scan
-  const handleScan = ({ data }) => {
-    setScanned(true);
+  async function handleScan(scanData) {
+    if (!scanningRef.current) return;
+    scanningRef.current = false;
 
     try {
-      const json = JSON.parse(data); // data = contenu du QR
+      const obj = JSON.parse(scanData.data);
 
-      setQrData(json);
-      alert("Conversation importée !");
-    } catch (e) {
-      alert("QR Code invalide !");
+      const conv = {
+        id: obj.id,
+        key_conv: obj.key,
+        title: "Conversation",
+        participants: [],
+        messages: []
+      };
+
+      await saveConversation(conv);
+      navigation.goBack();
     }
-  };
+    catch (e) {
+      alert("QR code invalide");
+      scanningRef.current = true;
+    }
+  }
 
-  // Pendant la demande
-  if (!permission) {
+  if (permission === null) {
     return (
       <View style={styles.center}>
-        <Text style={styles.text}>Chargement…</Text>
+        <Text style={styles.text}>Demande d’accès caméra…</Text>
       </View>
     );
   }
 
-  // Permission refusée
-  if (!permission.granted) {
+  if (permission === false) {
     return (
       <View style={styles.center}>
-        <Text style={styles.text}>Permission refusée</Text>
-        <Text style={styles.textSmall}>Active la caméra dans les paramètres</Text>
+        <Text style={styles.text}>Permission caméra refusée</Text>
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
-      {!scanned ? (
-        <CameraView
-          style={StyleSheet.absoluteFillObject}
-          onBarcodeScanned={handleScan}
-          barcodeScannerSettings={{
-            barcodeTypes: ["qr"],
-          }}
-        />
-      ) : (
-        <View style={styles.center}>
-          <Text style={styles.text}>Conversation détectée !</Text>
-          <Text style={styles.textSmall}>ID : {qrData?.id}</Text>
-        </View>
-      )}
+    <View style={{ flex: 1, backgroundColor: "black" }}>
+      <CameraView
+        style={{ flex: 1 }}
+        onBarcodeScanned={handleScan}
+        barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
+      />
+
+      <View style={styles.overlay}>
+        <Text style={styles.info}>Scanne un QR Code Volpina</Text>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-
   center: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: colors.background
   },
-
   text: {
-    color: colors.text,
-    fontSize: 20,
+    color: "white",
+    fontSize: 18
   },
-
-  textSmall: {
-    color: colors.subtitle,
-    marginTop: 10,
+  overlay: {
+    position: "absolute",
+    bottom: 40,
+    width: "100%",
+    alignItems: "center"
+  },
+  info: {
+    color: "white",
+    fontSize: 20,
+    fontWeight: "bold",
+    backgroundColor: "rgba(0,0,0,0.4)",
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 10
   }
 });

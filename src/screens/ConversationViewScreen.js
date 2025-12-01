@@ -13,12 +13,12 @@ export default function ConversationViewScreen() {
   const [messages, setMessages] = useState([]);
   const [convName, setConvName] = useState("Conversation");
 
-    useFocusEffect(
+  useFocusEffect(
     useCallback(() => {
         loadConvInfo();
         loadMessages();
     }, [])
-    );
+  );
 
   // Charger le nom de la conversation
   async function loadConvInfo() {
@@ -29,7 +29,10 @@ export default function ConversationViewScreen() {
       const list = JSON.parse(raw);
 
       const conv = list.find(c => c.id === convId);
-      if (conv) setConvName(conv.name);
+
+      if (conv) {
+        setConvName(conv.title || "Conversation");
+      }
 
     } catch (e) {
       console.log("Erreur lecture conv info :", e);
