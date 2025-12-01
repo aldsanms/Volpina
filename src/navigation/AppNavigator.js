@@ -2,6 +2,8 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { AppState, View, Text } from 'react-native';
 import { useState, useEffect, useRef } from 'react';
+import { getLastActive, getSessionCreated, isSessionExpired } from '../utils/SessionManager';
+import securityConfig from '../config/securityConfig';
 
 import LoginScreen from '../screens/LoginScreen';
 import PINScreen from '../screens/PINScreen';
@@ -41,21 +43,42 @@ export default function AppNavigator() {
     return () => sub.remove();
   }, []);
 
-  async function checkState() {
-    console.log("checkState — début");
+async function checkState() {
+  console.log("checkState — début");
 
-    const testCipher = await AsyncStorage.getItem("volpina_test_cipher");
-    console.log("testCipher =", testCipher);
+  const testCipher = await AsyncStorage.getItem("volpina_test_cipher");
+  console.log("testCipher =", testCipher);
 
-    if (!testCipher) {
-      console.log("→ Aucun testCipher → setLogged(false)");
-      setLogged(false);
-      return;
-    }
-
-    console.log("→ testCipher trouvé → setLogged('pin')");
-    setLogged("pin");
+  if (!testCipher) {
+    console.log("→ Aucun testCipher → setLogged(false)");
+    setLogged(false);           
+    return;
   }
+
+  const sessionCreated = await getSessionCreated();
+  const lastActive = await getLastActive();
+
+    const MAX_MINUTES = securityConfig.SESSION_TIMEOUT_MINUTES;
+
+  if (!sessionCreated || !lastActive) {
+    console.log("→ Pas de session → demander mot de passe");
+    setLogged(false);
+    return;
+  }
+
+  const now = Date.now();
+  const inactiveMs = now - lastActive;
+
+  if (inactiveMs > MAX_MINUTES * 60000) {
+    console.log("→ Session expirée : demander mot de passe maître");
+    setLogged(false);              
+    return;
+  }
+
+  console.log("→ Session valide → aller au PIN");
+  setLogged("pin");
+}
+
 
   if (logged === null) {
     return (

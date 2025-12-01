@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import securityConfig from '../config/securityConfig';
 
 const MASTER_KEY = "volpina_master_hash";
 const PIN_KEY = "volpina_pin_hash";
@@ -42,8 +43,11 @@ export async function resetToMaster() {
   await clearSession();
 }
 
-export async function isSessionExpired(maxMinutes = 10) {
+export async function isSessionExpired() {
   const last = await getLastActive();
   if (!last) return true;
+
+  const maxMinutes = securityConfig.SESSION_TIMEOUT_MINUTES;
   return (Date.now() - last) > maxMinutes * 60000;
 }
+

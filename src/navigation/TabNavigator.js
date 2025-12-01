@@ -19,7 +19,7 @@ export default function TabNavigator() {
       globalThis.triggerLock();  //  overlay LockScreen
     }
 
-  }, 60000); 
+  }); 
 
   return (
     <Tab.Navigator screenOptions={{ headerShown: false }}>

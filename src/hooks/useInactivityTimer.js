@@ -1,8 +1,11 @@
 import { useEffect, useRef } from 'react';
 import { AppState } from 'react-native';
 import { setLastActive } from '../utils/SessionManager';
+import securityConfig from '../config/securityConfig';
 
-export default function useInactivityTimer(onTimeout, delay = 120000) {
+export default function useInactivityTimer(onTimeout) {
+  const delay = securityConfig.INACTIVITY_LOCK_MS;
+
   const timeoutRef = useRef(null);
 
   //  RESET du timer
