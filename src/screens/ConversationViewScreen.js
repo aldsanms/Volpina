@@ -27,16 +27,18 @@ export default function ConversationViewScreen() {
 
   const listRef = useRef(null);
 
-  // NEW : offset et position utilisateur
+  // Position et etat du scroll
   const scrollOffsetRef = useRef(0);
   const isUserAtBottomRef = useRef(true);
 
-  // Scroll jusque TOUT en bas
+  // Sauvegarde pour restaurer la position apres fermeture clavier
+  const restoreOffsetRef = useRef(0);
+
+  // ----------- SCROLL TOUT EN BAS ----------- //
   function scrollToBottom() {
     requestAnimationFrame(() => {
       listRef.current?.scrollToEnd({ animated: false });
 
-      // sécurité pour vraiment forcer le bas
       setTimeout(() => {
         listRef.current?.scrollToOffset({
           offset: 2000,
@@ -46,17 +48,19 @@ export default function ConversationViewScreen() {
     });
   }
 
-  // Keyboard events
+  // ----------- KEYBOARD EVENTS ----------- //
   useEffect(() => {
     const showSub = Keyboard.addListener("keyboardDidShow", (e) => {
       const kHeight = e.endCoordinates.height;
       setKeyboardHeight(kHeight);
 
+      // On sauvegarde la position EXACTE pour la restaurer ensuite
+      restoreOffsetRef.current = scrollOffsetRef.current;
+
       if (isUserAtBottomRef.current) {
-        // utilisateur était déjà en bas → scroll normal
-        scrollToBottom();
+        scrollToBottom(); // comportement normal
       } else {
-        // utilisateur lisait des anciens messages → on n’écrase pas sa position
+        // NO SCROLL -> on reste la ou on etait
         setTimeout(() => {
           listRef.current?.scrollToOffset({
             offset: scrollOffsetRef.current + kHeight,
@@ -71,6 +75,14 @@ export default function ConversationViewScreen() {
 
       if (isUserAtBottomRef.current) {
         scrollToBottom();
+      } else {
+        // on restaure EXACTEMENT la position avant ouverture clavier
+        setTimeout(() => {
+          listRef.current?.scrollToOffset({
+            offset: restoreOffsetRef.current,
+            animated: false
+          });
+        }, 20);
       }
     });
 
@@ -80,7 +92,7 @@ export default function ConversationViewScreen() {
     };
   }, []);
 
-  // Charger le nom de la conversation
+  // ----------- CHARGEMENT DES INFOS ----------- //
   useFocusEffect(
     useCallback(() => {
       loadConvInfo();
@@ -107,10 +119,8 @@ export default function ConversationViewScreen() {
     const msgs = await fetchMessages(convId);
     setMessages(msgs);
 
-    // scroll initial parfait
-    setTimeout(() => {
-      scrollToBottom();
-    }, 10);
+    // Scroll initial parfait
+    setTimeout(scrollToBottom, 10);
   }
 
   const renderItem = ({ item }) => (
@@ -119,10 +129,11 @@ export default function ConversationViewScreen() {
     </View>
   );
 
+  // ----------- RENDER ----------- //
   return (
     <View style={styles.screen}>
 
-      {/* HEADER FIXE */}
+      {/* ───── HEADER FIXE ───── */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.navigate("Main")}>
           <Text style={styles.back}>‹ Retour</Text>
@@ -147,22 +158,22 @@ export default function ConversationViewScreen() {
         </View>
       </View>
 
-      {/* LISTE DES MESSAGES */}
+      {/* ───── LISTE + INPUT ───── */}
       <View style={styles.content}>
 
         <FlatList
           ref={listRef}
           data={messages}
           renderItem={renderItem}
-          keyExtractor={(item, idx) => idx.toString()}
+          keyExtractor={(item) => item.id.toString()}
           keyboardShouldPersistTaps="handled"
+          scrollEventThrottle={16}
 
           contentContainerStyle={{
             padding: 20,
             paddingBottom: keyboardHeight + 100,
           }}
 
-          // NEW : capter offset & savoir si user est en bas
           onScroll={(e) => {
             const offset = e.nativeEvent.contentOffset.y;
             scrollOffsetRef.current = offset;
@@ -171,15 +182,15 @@ export default function ConversationViewScreen() {
             const viewHeight = e.nativeEvent.layoutMeasurement.height;
 
             const bottomGap = contentHeight - viewHeight - offset;
-
             isUserAtBottomRef.current = bottomGap < 20;
           }}
-          scrollEventThrottle={16}
 
-          onContentSizeChange={() => scrollToBottom()}
+          onContentSizeChange={() => {
+            if (isUserAtBottomRef.current) scrollToBottom();
+          }}
         />
 
-        {/* BARRE D’ENVOI */}
+        {/* ───── BARRE D ENVOI ───── */}
         <View style={[styles.sendBar, { marginBottom: keyboardHeight }]}>
           <TextInput
             style={styles.textInput}
@@ -192,7 +203,7 @@ export default function ConversationViewScreen() {
           <TouchableOpacity
             style={styles.sendButton}
             onPress={async () => {
-              if (inputText.trim().length === 0) return;
+              if (!inputText.trim()) return;
 
               const ok = await sendMessage(convId, inputText, "me");
               if (ok) {
@@ -204,6 +215,7 @@ export default function ConversationViewScreen() {
             <Text style={styles.sendButtonText}>Envoyer</Text>
           </TouchableOpacity>
         </View>
+
       </View>
 
     </View>
