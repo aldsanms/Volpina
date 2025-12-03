@@ -1,14 +1,18 @@
-import React, { useState, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, FlatList } from 'react-native';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  FlatList,
+  TextInput,
+  Keyboard,
+} from 'react-native';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import * as FileSystem from 'expo-file-system/legacy';
 import colors from '../theme/colors';
 import { decryptConvFields } from "../utils/ConversationCrypto";
-import { decryptMessageList } from "../utils/MessageCrypto";
 import { fetchMessages, sendMessage } from "../api/api";
-
-
-
 
 export default function ConversationViewScreen() {
 
@@ -18,40 +22,96 @@ export default function ConversationViewScreen() {
 
   const [messages, setMessages] = useState([]);
   const [convName, setConvName] = useState("Conversation");
+  const [inputText, setInputText] = useState("");
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
 
-    useFocusEffect(
-    useCallback(() => {
-        loadConvInfo();
-        loadMessages();
-    }, [])
-    );
+  const listRef = useRef(null);
 
-  // Charger le nom de la conversation
-  async function loadConvInfo() {
-    const path = FileSystem.documentDirectory + "conversations.json";
+  // NEW : offset et position utilisateur
+  const scrollOffsetRef = useRef(0);
+  const isUserAtBottomRef = useRef(true);
 
-    try {
-      const raw = await FileSystem.readAsStringAsync(path);
-      const list = JSON.parse(raw);
+  // Scroll jusque TOUT en bas
+  function scrollToBottom() {
+    requestAnimationFrame(() => {
+      listRef.current?.scrollToEnd({ animated: false });
 
-      const conv = list.find(c => c.id === convId);
-      if (conv) {
-  const dec = decryptConvFields(conv, globalThis.session_Hmaster);
-  setConvName(dec.name);
-}
-
-
-    } catch (e) {
-      console.log("Erreur lecture conv info :", e);
-    }
+      // sécurité pour vraiment forcer le bas
+      setTimeout(() => {
+        listRef.current?.scrollToOffset({
+          offset: 2000,
+          animated: true
+        });
+      }, 20);
+    });
   }
 
-async function loadMessages() {
-  const msgs = await fetchMessages(convId);
-  setMessages(msgs);
-}
+  // Keyboard events
+  useEffect(() => {
+    const showSub = Keyboard.addListener("keyboardDidShow", (e) => {
+      const kHeight = e.endCoordinates.height;
+      setKeyboardHeight(kHeight);
 
+      if (isUserAtBottomRef.current) {
+        // utilisateur était déjà en bas → scroll normal
+        scrollToBottom();
+      } else {
+        // utilisateur lisait des anciens messages → on n’écrase pas sa position
+        setTimeout(() => {
+          listRef.current?.scrollToOffset({
+            offset: scrollOffsetRef.current + kHeight,
+            animated: true
+          });
+        }, 20);
+      }
+    });
 
+    const hideSub = Keyboard.addListener("keyboardDidHide", () => {
+      setKeyboardHeight(0);
+
+      if (isUserAtBottomRef.current) {
+        scrollToBottom();
+      }
+    });
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+
+  // Charger le nom de la conversation
+  useFocusEffect(
+    useCallback(() => {
+      loadConvInfo();
+      loadMessages();
+    }, [])
+  );
+
+  async function loadConvInfo() {
+    try {
+      const raw = await FileSystem.readAsStringAsync(
+        FileSystem.documentDirectory + "conversations.json"
+      );
+      const list = JSON.parse(raw);
+      const conv = list.find(c => c.id === convId);
+
+      if (conv) {
+        const dec = decryptConvFields(conv, globalThis.session_Hmaster);
+        setConvName(dec.name);
+      }
+    } catch {}
+  }
+
+  async function loadMessages() {
+    const msgs = await fetchMessages(convId);
+    setMessages(msgs);
+
+    // scroll initial parfait
+    setTimeout(() => {
+      scrollToBottom();
+    }, 10);
+  }
 
   const renderItem = ({ item }) => (
     <View style={styles.messageBubble}>
@@ -60,11 +120,10 @@ async function loadMessages() {
   );
 
   return (
-    <View style={styles.container}>
+    <View style={styles.screen}>
 
-      {/* ───────── TOP BAR ───────── */}
+      {/* HEADER FIXE */}
       <View style={styles.header}>
-
         <TouchableOpacity onPress={() => navigation.navigate("Main")}>
           <Text style={styles.back}>‹ Retour</Text>
         </TouchableOpacity>
@@ -72,7 +131,6 @@ async function loadMessages() {
         <Text style={styles.title}>{convName}</Text>
 
         <View style={styles.rightButtons}>
-
           <TouchableOpacity
             style={styles.headerBtn}
             onPress={() => navigation.navigate("EditConv", { convId })}
@@ -86,42 +144,66 @@ async function loadMessages() {
           >
             <Text style={styles.headerBtnText}>QR</Text>
           </TouchableOpacity>
-
         </View>
-
       </View>
 
-      {/* ───────── MESSAGES ───────── */}
-      {messages.length === 0 ? (
-        <View style={styles.emptyContainer}>
-          <Text style={styles.emptyText}>Aucun message pour le moment…</Text>
-        </View>
-      ) : (
+      {/* LISTE DES MESSAGES */}
+      <View style={styles.content}>
+
         <FlatList
+          ref={listRef}
           data={messages}
           renderItem={renderItem}
-          keyExtractor={(item, index) => index.toString()}
-          style={{ flex: 1 }}
-          contentContainerStyle={{ padding: 20, paddingBottom: 100 }}
+          keyExtractor={(item, idx) => idx.toString()}
+          keyboardShouldPersistTaps="handled"
+
+          contentContainerStyle={{
+            padding: 20,
+            paddingBottom: keyboardHeight + 100,
+          }}
+
+          // NEW : capter offset & savoir si user est en bas
+          onScroll={(e) => {
+            const offset = e.nativeEvent.contentOffset.y;
+            scrollOffsetRef.current = offset;
+
+            const contentHeight = e.nativeEvent.contentSize.height;
+            const viewHeight = e.nativeEvent.layoutMeasurement.height;
+
+            const bottomGap = contentHeight - viewHeight - offset;
+
+            isUserAtBottomRef.current = bottomGap < 20;
+          }}
+          scrollEventThrottle={16}
+
+          onContentSizeChange={() => scrollToBottom()}
         />
-      )}
 
-      <TouchableOpacity
-  onPress={async () => {
-    const encrypted = "TEST_ENCRYPTED_MESSAGE"; // ici tu mettras ton vrai chiffrement
-    const ok = await sendMessage(convId, encrypted, "me");
+        {/* BARRE D’ENVOI */}
+        <View style={[styles.sendBar, { marginBottom: keyboardHeight }]}>
+          <TextInput
+            style={styles.textInput}
+            placeholder="Écrire un message…"
+            placeholderTextColor="#666"
+            value={inputText}
+            onChangeText={setInputText}
+          />
 
-    if (ok) loadMessages();
-  }}
-  style={{ padding: 10, backgroundColor: "#333", margin: 15, borderRadius: 10 }}
->
-  <Text style={{ color: "white", textAlign: "center" }}>Envoyer message test</Text>
-</TouchableOpacity>
+          <TouchableOpacity
+            style={styles.sendButton}
+            onPress={async () => {
+              if (inputText.trim().length === 0) return;
 
-
-      {/* ───────── INPUT FUTUR ───────── */}
-      <View style={styles.inputBar}>
-        <Text style={{ color: "#555" }}>Barre d’écriture (à venir)</Text>
+              const ok = await sendMessage(convId, inputText, "me");
+              if (ok) {
+                setInputText("");
+                loadMessages();
+              }
+            }}
+          >
+            <Text style={styles.sendButtonText}>Envoyer</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
     </View>
@@ -129,79 +211,99 @@ async function loadMessages() {
 }
 
 const styles = StyleSheet.create({
-  container:{
-    flex:1,
-    backgroundColor:colors.background,
+
+  screen: {
+    flex: 1,
+    backgroundColor: colors.background,
   },
 
-  header:{
-    flexDirection:"row",
-    alignItems:"center",
-    justifyContent:"space-between",
-    padding:15,
-    paddingTop:50,
-    borderBottomWidth:1,
-    borderBottomColor:"#222",
+  /* HEADER FIXE */
+  header: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 110,
+    paddingTop: 50,
+    paddingHorizontal: 15,
+    backgroundColor: colors.background,
+    borderBottomWidth: 1,
+    borderBottomColor: "#222",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    zIndex: 9999,
   },
 
-  back:{
-    color:colors.subtitle,
-    fontSize:16,
+  back: { color: colors.subtitle, fontSize: 16 },
+  title: { color: "white", fontSize: 20, fontWeight: "bold" },
+
+  rightButtons: { flexDirection: "row" },
+
+  headerBtn: {
+    marginLeft: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    backgroundColor: "#333",
+    borderRadius: 8,
   },
 
-  title:{
-    color:"white",
-    fontSize:20,
-    fontWeight:"bold",
-    maxWidth: 180,
-    textAlign: "center",
+  headerBtnText: { color: "white" },
+
+  /* CONTENU */
+  content: {
+    flex: 1,
+    paddingTop: 110,
   },
 
-  rightButtons:{
-    flexDirection:"row",
-    alignItems:"center",
+  messageBubble: {
+    backgroundColor: "#1A1A1A",
+    padding: 12,
+    borderRadius: 10,
+    marginBottom: 10,
   },
 
-  headerBtn:{
-    marginLeft:10,
-    paddingHorizontal:10,
-    paddingVertical:4,
-    backgroundColor:"#333",
-    borderRadius:8,
+  msgText: { color: "white" },
+
+  /* INPUT BAR */
+  sendBar: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 80,
+    padding: 10,
+    paddingBottom: 25,
+    backgroundColor: colors.background,
+    borderTopWidth: 1,
+    borderTopColor: "#222",
+    flexDirection: "row",
+    alignItems: "center",
   },
 
-  headerBtnText:{
-    color:"white",
-    fontSize:14,
+  textInput: {
+    flex: 1,
+    backgroundColor: "#111",
+    padding: 12,
+    color: "white",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#333",
+    marginRight: 10,
+    fontSize: 16,
   },
 
-  emptyContainer:{
-    flex:1,
-    justifyContent:"center",
-    alignItems:"center",
+  sendButton: {
+    backgroundColor: "#3366FF",
+    paddingHorizontal: 15,
+    paddingVertical: 12,
+    borderRadius: 8,
   },
 
-  emptyText:{
-    color:"#666",
-    fontSize:16,
+  sendButtonText: {
+    color: "white",
+    fontWeight: "bold",
+    fontSize: 16,
   },
 
-  messageBubble:{
-    backgroundColor:"#1A1A1A",
-    padding:12,
-    borderRadius:10,
-    marginBottom:10,
-  },
-
-  msgText:{
-    color:"white",
-    fontSize:16,
-  },
-
-  inputBar:{
-    borderTopWidth:1,
-    borderTopColor:"#222",
-    padding:15,
-    alignItems:"center",
-  },
 });
