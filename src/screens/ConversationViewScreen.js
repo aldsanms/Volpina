@@ -3,6 +3,8 @@ import { View, Text, StyleSheet, TouchableOpacity, FlatList } from 'react-native
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import * as FileSystem from 'expo-file-system/legacy';
 import colors from '../theme/colors';
+import { decryptConvFields } from "../utils/ConversationCrypto";
+
 
 export default function ConversationViewScreen() {
 
@@ -29,7 +31,11 @@ export default function ConversationViewScreen() {
       const list = JSON.parse(raw);
 
       const conv = list.find(c => c.id === convId);
-      if (conv) setConvName(conv.name);
+      if (conv) {
+  const dec = decryptConvFields(conv, globalThis.session_Hmaster);
+  setConvName(dec.name);
+}
+
 
     } catch (e) {
       console.log("Erreur lecture conv info :", e);

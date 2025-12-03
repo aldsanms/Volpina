@@ -4,6 +4,8 @@ import QRCode from 'react-native-qrcode-svg';
 import colors from '../theme/colors';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import * as FileSystem from 'expo-file-system/legacy';
+import { decryptConvFields } from "../utils/ConversationCrypto";
+
 
 export default function ShareConvScreen() {
 
@@ -28,10 +30,13 @@ export default function ShareConvScreen() {
       const conv = json.find(c => c.id === convId);
 
       if (conv) {
-        setConvData({
-          id: convId,
-          key: conv.key
-        });
+        const dec = decryptConvFields(conv, globalThis.session_Hmaster);
+
+setConvData({
+  id: convId,   // TOUJOURS EN CLAIR
+  key: dec.key  // DÉCHIFFRÉ
+});
+
       }
 
     } catch (e) {

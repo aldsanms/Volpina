@@ -4,6 +4,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import * as FileSystem from 'expo-file-system/legacy';
 import colors from '../theme/colors';
+import { decryptConvFields } from "../utils/ConversationCrypto";
+
 
 export default function ConversationsScreen() {
 
@@ -38,9 +40,14 @@ export default function ConversationsScreen() {
       const raw = await FileSystem.readAsStringAsync(path);
       const data = JSON.parse(raw); // tableau brut
 
+      const H_master = globalThis.session_Hmaster;
+const decryptedList = data.map(c => decryptConvFields(c, H_master));
+
+
       const enriched = [];
 
-      for (const conv of data) {
+      for (const conv of decryptedList){
+
         const last = await getLastMessage(conv.id);
         enriched.push({
           ...conv,

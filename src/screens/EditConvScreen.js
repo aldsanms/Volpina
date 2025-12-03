@@ -3,6 +3,8 @@ import { View, Text, TextInput, StyleSheet, TouchableOpacity } from "react-nativ
 import { useNavigation, useRoute } from "@react-navigation/native";
 import * as FileSystem from "expo-file-system/legacy";
 import colors from "../theme/colors";
+import { decryptConvFields, encryptConvFields } from "../utils/ConversationCrypto";
+
 
 export default function EditConvScreen() {
 
@@ -24,7 +26,11 @@ export default function EditConvScreen() {
       const list = JSON.parse(raw);
       const conv = list.find(c => c.id === convId);
 
-      if (conv) setConvName(conv.name);
+      if (conv){
+        const dec = decryptConvFields(conv, globalThis.session_Hmaster);
+setConvName(dec.name);
+
+      }
     } catch (e) {
       console.log("Erreur lecture conversation", e);
     }
@@ -37,9 +43,19 @@ export default function EditConvScreen() {
       const raw = await FileSystem.readAsStringAsync(path);
       let list = JSON.parse(raw);
 
-      list = list.map(c =>
-        c.id === convId ? { ...c, name: convName } : c
-      );
+      list = list.map(c => {
+  if (c.id !== convId) return c;
+
+  const decrypted = decryptConvFields(c, globalThis.session_Hmaster);
+
+  const updated = {
+    ...decrypted,
+    name: convName
+  };
+
+  return encryptConvFields(updated, globalThis.session_Hmaster);
+});
+
 
       await FileSystem.writeAsStringAsync(path, JSON.stringify(list));
     } catch (e) {

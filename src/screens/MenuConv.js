@@ -3,6 +3,8 @@ import { useNavigation } from '@react-navigation/native';
 import { useEffect, useState } from 'react';
 import * as FileSystem from 'expo-file-system/legacy';
 import colors from '../theme/colors';
+import { encryptConvFields } from "../utils/ConversationCrypto";
+
 
 // 🔥 Générateur d’ID compatible Expo (remplace uuid)
 function generateId() {
@@ -60,12 +62,21 @@ export default function MenuConv() {
     console.log("existing:", existing);
 
     // Ajout de la nouvelle conversation
-    existing.push({
-      id: convId,
-      key: secretKey,
-      name: "Nouvelle conversation",
-      createdAt: Date.now()
-    });
+    const H_master = globalThis.session_Hmaster;
+if (!H_master) {
+  alert("Erreur : H_master manquant");
+  return;
+}
+
+const encryptedConv = encryptConvFields({
+  id: convId,                    // NON CHIFFRÉ
+  key: secretKey,                // CHIFFRÉ
+  name: "Nouvelle conversation", // CHIFFRÉ
+  createdAt: Date.now()
+}, H_master);
+
+existing.push(encryptedConv);
+
 
     // Sauvegarde conversations.json
     await FileSystem.writeAsStringAsync(path, JSON.stringify(existing));
