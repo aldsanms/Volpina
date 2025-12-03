@@ -4,6 +4,10 @@ import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/nativ
 import * as FileSystem from 'expo-file-system/legacy';
 import colors from '../theme/colors';
 import { decryptConvFields } from "../utils/ConversationCrypto";
+import { decryptMessageList } from "../utils/MessageCrypto";
+import { fetchMessages, sendMessage } from "../api/api";
+
+
 
 
 export default function ConversationViewScreen() {
@@ -42,19 +46,12 @@ export default function ConversationViewScreen() {
     }
   }
 
-  async function loadMessages() {
-    const path = FileSystem.documentDirectory + `conv_${convId}.json`;
+async function loadMessages() {
+  const msgs = await fetchMessages(convId);
+  setMessages(msgs);
+}
 
-    try {
-      const raw = await FileSystem.readAsStringAsync(path);
-      const json = JSON.parse(raw);
 
-      setMessages(json.messages || []);
-    } catch (e) {
-      console.log("Erreur lecture messages :", e);
-      setMessages([]);
-    }
-  }
 
   const renderItem = ({ item }) => (
     <View style={styles.messageBubble}>
@@ -108,6 +105,19 @@ export default function ConversationViewScreen() {
           contentContainerStyle={{ padding: 20, paddingBottom: 100 }}
         />
       )}
+
+      <TouchableOpacity
+  onPress={async () => {
+    const encrypted = "TEST_ENCRYPTED_MESSAGE"; // ici tu mettras ton vrai chiffrement
+    const ok = await sendMessage(convId, encrypted, "me");
+
+    if (ok) loadMessages();
+  }}
+  style={{ padding: 10, backgroundColor: "#333", margin: 15, borderRadius: 10 }}
+>
+  <Text style={{ color: "white", textAlign: "center" }}>Envoyer message test</Text>
+</TouchableOpacity>
+
 
       {/* ───────── INPUT FUTUR ───────── */}
       <View style={styles.inputBar}>
