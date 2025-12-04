@@ -21,29 +21,25 @@ export default function ConversationViewScreen() {
   const route = useRoute();
   const { convId } = route.params;
 
-  // Messages + conv info
   const [messages, setMessages] = useState([]);
   const [convName, setConvName] = useState("Conversation");
   const [inputText, setInputText] = useState("");
 
-  // Keyboard
   const [keyboardHeight, setKeyboardHeight] = useState(0);
 
-  // Scroll refs
   const listRef = useRef(null);
   const scrollOffsetRef = useRef(0);
   const isUserAtBottomRef = useRef(true);
   const restoreOffsetRef = useRef(0);
 
-  // Pseudos mapping
   const [userMap, setUserMap] = useState({});
   const usersPath = FileSystem.documentDirectory + `users_${convId}.json`;
 
-  const myId = useRef(null); // idPerso local (sender)
+  const myId = useRef(null);
 
-  // ────────────────────────────────────────────
-  //  Charger la map pseudo locale
-  // ────────────────────────────────────────────
+  //──────────────────────────────────────────
+  //              USER MAP
+  //──────────────────────────────────────────
   async function loadUserMap() {
     try {
       const raw = await FileSystem.readAsStringAsync(usersPath);
@@ -53,28 +49,22 @@ export default function ConversationViewScreen() {
     }
   }
 
-  // ────────────────────────────────────────────
-  //     GET PSEUDO (stable, stocké en JSON)
-  // ────────────────────────────────────────────
   function getPseudo(senderId) {
     if (senderId === myId.current) return "Moi";
 
     if (!userMap[senderId]) {
-      // Génère un pseudo unique
       const newPseudo = generatePseudo(Object.values(userMap));
       const updated = { ...userMap, [senderId]: newPseudo };
-
       setUserMap(updated);
       FileSystem.writeAsStringAsync(usersPath, JSON.stringify(updated));
-
       return newPseudo;
     }
     return userMap[senderId];
   }
 
-  // ────────────────────────────────────────────
-  //                 SCROLL TO BOTTOM
-  // ────────────────────────────────────────────
+  //──────────────────────────────────────────
+  //              SCROLL TO BOTTOM
+  //──────────────────────────────────────────
   function scrollToBottom() {
     requestAnimationFrame(() => {
       listRef.current?.scrollToEnd({ animated: false });
@@ -87,21 +77,18 @@ export default function ConversationViewScreen() {
     });
   }
 
-  // ────────────────────────────────────────────
-  //              KEYBOARD EVENTS
-  // ────────────────────────────────────────────
-    useEffect(() => {
+  //──────────────────────────────────────────
+  //              KEYBOARD HANDLING
+  //──────────────────────────────────────────
+  useEffect(() => {
     const showSub = Keyboard.addListener("keyboardDidShow", (e) => {
       const kHeight = e.endCoordinates.height;
       setKeyboardHeight(kHeight);
 
-      // On sauvegarde la position EXACTE pour la restaurer ensuite
       restoreOffsetRef.current = scrollOffsetRef.current;
 
-      if (isUserAtBottomRef.current) {
-        scrollToBottom(); // comportement normal
-      } else {
-        // NO SCROLL -> on reste la ou on etait
+      if (isUserAtBottomRef.current) scrollToBottom();
+      else {
         setTimeout(() => {
           listRef.current?.scrollToOffset({
             offset: scrollOffsetRef.current + kHeight,
@@ -114,10 +101,8 @@ export default function ConversationViewScreen() {
     const hideSub = Keyboard.addListener("keyboardDidHide", () => {
       setKeyboardHeight(0);
 
-      if (isUserAtBottomRef.current) {
-        scrollToBottom();
-      } else {
-        // on restaure EXACTEMENT la position avant ouverture clavier
+      if (isUserAtBottomRef.current) scrollToBottom();
+      else {
         setTimeout(() => {
           listRef.current?.scrollToOffset({
             offset: restoreOffsetRef.current,
@@ -133,9 +118,9 @@ export default function ConversationViewScreen() {
     };
   }, []);
 
-  // ────────────────────────────────────────────
-  //      LOAD CONV INFO + messages + users map
-  // ────────────────────────────────────────────
+  //──────────────────────────────────────────
+  //              LOAD CONV + MESSAGES
+  //──────────────────────────────────────────
   useFocusEffect(
     useCallback(() => {
       loadConvInfo();
@@ -155,62 +140,157 @@ export default function ConversationViewScreen() {
       if (conv) {
         const dec = decryptConvFields(conv, globalThis.session_Hmaster);
         setConvName(dec.name);
-        myId.current = dec.idPerso;  // <-- important
+        myId.current = dec.idPerso;
       }
     } catch {}
   }
 
   async function loadMessages() {
     const msgs = await fetchMessages(convId);
-    setMessages(msgs);
+    setMessages(prepareMessages(msgs));
     setTimeout(scrollToBottom, 10);
   }
 
-  // ────────────────────────────────────────────
-  //               FORMAT HEURE
-  // ────────────────────────────────────────────
+  //──────────────────────────────────────────
+  //              FORMAT HEURE + DATE
+  //──────────────────────────────────────────
   function formatTime(ts) {
     const d = new Date(Number(ts));
     if (isNaN(d.getTime())) return "";
     return d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
   }
 
-  // ────────────────────────────────────────────
-  //                 RENDER ITEM
-  // ────────────────────────────────────────────
+  function formatDayLabel(dateObj) {
+    const today = new Date();
+    today.setHours(0,0,0,0);
+
+    const day = new Date(dateObj.getTime());
+    day.setHours(0,0,0,0);
+
+    const diff = today - day;
+
+    if (diff === 0) return "Aujourd’hui";
+    if (diff === 86400000) return "Hier";
+
+    return dateObj.toLocaleDateString("fr-FR", {
+      weekday: "long",
+      day: "numeric",
+      month: "long"
+    });
+  }
+
+  //──────────────────────────────────────────
+  //       GROUPING BY DAY + TIME
+  //──────────────────────────────────────────
+function prepareMessages(rawMsgs) {
+  if (!rawMsgs || !Array.isArray(rawMsgs)) return [];
+
+  const result = [];
+  let lastDay = "";
+  let lastMinute = "";
+  let lastSender = null;
+
+  for (let msg of rawMsgs) {
+    const d = new Date(Number(msg.timestamp));
+    if (isNaN(d.getTime())) continue;
+
+    const dayString = d.toLocaleDateString("fr-FR", {
+      weekday: "long",
+      day: "2-digit",
+      month: "long"
+    });
+
+    const minuteString = d.toLocaleTimeString("fr-FR", {
+      hour: "2-digit",
+      minute: "2-digit"
+    });
+
+    // ————— NOUVEAU JOUR —————
+    if (dayString !== lastDay) {
+      result.push({
+        type: "day",
+        id: `day-${dayString}`,
+        label: dayString
+      });
+      lastDay = dayString;
+      lastMinute = "";
+      lastSender = null;
+    }
+
+    // ————— NOUVEAU GROUPE D’HEURE —————
+    const startsNewGroup = (minuteString !== lastMinute);
+    const newSender = msg.sender !== lastSender;
+
+    result.push({
+      ...msg,
+      type: "msg",
+      showTime: startsNewGroup,
+      showPseudo: newSender,   
+      marginTop: startsNewGroup ? 14 : 0
+    });
+
+    lastMinute = minuteString;
+    lastSender = msg.sender;
+  }
+
+  return result;
+}
+
+
+  //──────────────────────────────────────────
+  //                RENDER ITEM
+  //──────────────────────────────────────────
 const renderItem = ({ item }) => {
+
+  // ───────────── SECTION JOUR (séparateur) ─────────────
+  if (item.type === "day") {
+    return (
+      <View style={styles.daySeparatorContainer}>
+        <Text style={styles.daySeparatorText}>{item.label}</Text>
+      </View>
+    );
+  }
+
+  // ───────────── SECTION MESSAGE ─────────────
   const isMe = item.sender === myId.current;
   const pseudo = getPseudo(item.sender);
   const time = formatTime(item.timestamp);
 
   return (
-    <View style={[
-      styles.row,
-      isMe ? styles.rowMe : styles.rowOther
-    ]}>
+    <View
+      style={[
+        styles.row,
+        isMe ? styles.rowMe : styles.rowOther,
+        { marginTop: item.marginTop ?? 0 }
+      ]}
+    >
 
-      {/* Heure côté gauche pour les autres */}
-      {isMe && (
+      {/* Heure côté gauche POUR MES messages */}
+      {isMe && item.showTime && (
         <Text style={[styles.timeSide, styles.timeRight]}>
           {time}
         </Text>
       )}
 
       <View style={styles.column}>
-        {!isMe && (
+
+        {/* Pseudo seulement si NOUVEAU BLOC */}
+        {!isMe && item.showPseudo && (
           <Text style={styles.pseudo}>{pseudo}</Text>
         )}
 
-        <View style={[
-          styles.bubble,
-          isMe ? styles.myBubble : styles.otherBubble
-        ]}>
+        <View
+          style={[
+            styles.bubble,
+            isMe ? styles.myBubble : styles.otherBubble
+          ]}
+        >
           <Text style={styles.msgText}>{item.text}</Text>
         </View>
       </View>
 
-      {/* Heure côté droit pour moi */}
-      {!isMe && (
+      {/* Heure côté droit pour les AUTRES messages */}
+      {!isMe && item.showTime && (
         <Text style={[styles.timeSide, styles.timeLeft]}>
           {time}
         </Text>
@@ -221,10 +301,9 @@ const renderItem = ({ item }) => {
 };
 
 
-
-  // ────────────────────────────────────────────
-  //                     RENDER
-  // ────────────────────────────────────────────
+  //──────────────────────────────────────────
+  //                RENDER SCREEN
+  //──────────────────────────────────────────
   return (
     <View style={styles.screen}>
 
@@ -238,14 +317,12 @@ const renderItem = ({ item }) => {
 
         <View style={styles.rightButtons}>
           <TouchableOpacity style={styles.headerBtn}
-            onPress={() => navigation.navigate("EditConv", { convId })}
-          >
+            onPress={() => navigation.navigate("EditConv", { convId })}>
             <Text style={styles.headerBtnText}>⋯</Text>
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.headerBtn}
-            onPress={() => navigation.navigate("ShareConv", { convId })}
-          >
+            onPress={() => navigation.navigate("ShareConv", { convId })}>
             <Text style={styles.headerBtnText}>QR</Text>
           </TouchableOpacity>
         </View>
@@ -257,7 +334,9 @@ const renderItem = ({ item }) => {
           ref={listRef}
           data={messages}
           renderItem={renderItem}
-          keyExtractor={(item) => item.id.toString()}
+          keyExtractor={(item, index) =>
+            item.type === "day" ? `day-${index}` : `msg-${item.id}`
+          }
           scrollEventThrottle={16}
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={{
@@ -305,20 +384,19 @@ const renderItem = ({ item }) => {
             <Text style={styles.sendButtonText}>Envoyer</Text>
           </TouchableOpacity>
         </View>
-      </View>
 
+      </View>
     </View>
   );
 }
+
 const styles = StyleSheet.create({
 
-  /* ÉCRAN */
   screen: {
     flex: 1,
     backgroundColor: colors.background,
   },
 
-  /* HEADER */
   header: {
     position: "absolute",
     top: 0,
@@ -363,18 +441,15 @@ const styles = StyleSheet.create({
     color: colors.text,
   },
 
-  /* CONTENU LISTE */
   content: {
     flex: 1,
     paddingTop: 110,
   },
 
-  /* ALIGNEMENT DES MESSAGES */
   row: {
     flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 18,
-    maxWidth: "100%",
+    alignItems: "flex-end",
+    marginBottom: 8,
     paddingHorizontal: 0,
   },
 
@@ -390,7 +465,6 @@ const styles = StyleSheet.create({
     maxWidth: "75%",
   },
 
-  /* PSEUDO AU-DESSUS DE LA BULLE DES AUTRES */
   pseudo: {
     color: colors.subtitle,
     fontSize: 13,
@@ -398,29 +472,28 @@ const styles = StyleSheet.create({
     marginLeft: 4,
   },
 
-  /* BULLES */
   bubble: {
     paddingVertical: 10,
     paddingHorizontal: 14,
     borderRadius: 16,
   },
 
-  // Bulle du user local
   myBubble: {
     backgroundColor: colors.primary,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.25)", // contour léger
+    borderColor: "rgba(255,255,255,0.25)",
+    borderRadius: 14,
     borderTopRightRadius: 4,
-    marginRight: -5,
+    marginRight: 0,
   },
 
-  // Bulle des autres
   otherBubble: {
     backgroundColor: colors.backgroundLight,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.15)", // contour léger
+    borderColor: "rgba(255,255,255,0.15)",
+    borderRadius: 14,
     borderTopLeftRadius: 4,
-    marginLeft: -5,
+    marginLeft: 0,
   },
 
   msgText: {
@@ -428,12 +501,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
 
-  /* HEURE SUR LE CÔTÉ */
   timeSide: {
     fontSize: 12,
     color: colors.subtitle,
-    marginHorizontal: 6,
-    marginTop: 4,
+    marginHorizontal: 8,
+    marginBottom: 2,
   },
 
   timeLeft: {
@@ -444,7 +516,6 @@ const styles = StyleSheet.create({
     alignSelf: "flex-end",
   },
 
-  /* BARRE D’ENVOI */
   sendBar: {
     position: "absolute",
     bottom: 0,
@@ -485,4 +556,18 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
 
+  daySeparatorContainer: {
+    width: "100%",
+    alignItems: "center",
+    marginVertical: 12,
+  },
+
+  daySeparatorText: {
+    color: colors.subtitle,
+    fontSize: 14,
+    backgroundColor: colors.backgroundLight,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
 });
