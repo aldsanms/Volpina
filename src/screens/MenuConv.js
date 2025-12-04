@@ -72,6 +72,7 @@ const encryptedConv = encryptConvFields({
   id: convId,                    // NON CHIFFRÉ
   key: secretKey,                // CHIFFRÉ
   name: "Nouvelle conversation", // CHIFFRÉ
+  idPerso: generateId(), // CHIFFRÉ
   createdAt: Date.now()
 }, H_master);
 
