@@ -63,20 +63,20 @@ export default function MenuConv() {
 
     // Ajout de la nouvelle conversation
     const H_master = globalThis.session_Hmaster;
-if (!H_master) {
-  alert("Erreur : H_master manquant");
-  return;
-}
+    if (!H_master) {
+      alert("Erreur : H_master manquant");
+      return;
+    }
 
-const encryptedConv = encryptConvFields({
-  id: convId,                    // NON CHIFFRÉ
-  key: secretKey,                // CHIFFRÉ
-  name: "Nouvelle conversation", // CHIFFRÉ
-  idPerso: generateId(), // CHIFFRÉ
-  createdAt: Date.now()
-}, H_master);
+    const encryptedConv = encryptConvFields({
+      id: convId,                    // NON CHIFFRÉ
+      key: secretKey,                // CHIFFRÉ
+      name: "Nouvelle conversation", // CHIFFRÉ
+      idPerso: generateId(), // CHIFFRÉ
+      createdAt: Date.now()
+    }, H_master);
 
-existing.push(encryptedConv);
+    existing.push(encryptedConv);
 
 
     // Sauvegarde conversations.json
@@ -98,7 +98,7 @@ existing.push(encryptedConv);
     <View style={styles.container}>
 
       {/* ——— Logo ——— */}
-      <Image 
+      <Image
         source={require('../theme/volpina_logo.png')}
         style={styles.logo}
       />
@@ -112,7 +112,7 @@ existing.push(encryptedConv);
       </TouchableOpacity>
 
       {/* ——— Bouton rejoindre ——— */}
-      <TouchableOpacity 
+      <TouchableOpacity
         style={[styles.button, styles.buttonSecondary]}
         onPress={() => navigation.navigate("ScanConversation")}
       >
@@ -120,7 +120,7 @@ existing.push(encryptedConv);
       </TouchableOpacity>
 
       {/* ——— Retour ——— */}
-      <TouchableOpacity 
+      <TouchableOpacity
         style={styles.backButton}
         onPress={() => navigation.goBack()}
       >
@@ -132,53 +132,53 @@ existing.push(encryptedConv);
 }
 
 const styles = StyleSheet.create({
-  container:{
-    flex:1,
+  container: {
+    flex: 1,
     backgroundColor: colors.background,
-    justifyContent:'center',
-    alignItems:'center',
-    paddingHorizontal:20
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20
   },
 
-  logo:{
-    width:90,
-    height:90,
-    marginBottom:25
+  logo: {
+    width: 90,
+    height: 90,
+    marginBottom: 25
   },
 
-  title:{
-    fontSize:26,
-    color:colors.text,
-    marginBottom:40,
-    textAlign:'center'
+  title: {
+    fontSize: 26,
+    color: colors.text,
+    marginBottom: 40,
+    textAlign: 'center'
   },
 
-  button:{
-    backgroundColor:colors.primary,
-    paddingVertical:15,
-    paddingHorizontal:25,
-    borderRadius:12,
-    width:'100%',
-    marginBottom:20
+  button: {
+    backgroundColor: colors.primary,
+    paddingVertical: 15,
+    paddingHorizontal: 25,
+    borderRadius: 12,
+    width: '100%',
+    marginBottom: 20
   },
 
-  buttonSecondary:{
-    backgroundColor:"#333"
+  buttonSecondary: {
+    backgroundColor: "#333"
   },
 
-  buttonText:{
-    textAlign:'center',
-    color:'white',
-    fontSize:18,
-    fontWeight:'600'
+  buttonText: {
+    textAlign: 'center',
+    color: 'white',
+    fontSize: 18,
+    fontWeight: '600'
   },
 
-  backButton:{
-    marginTop:20
+  backButton: {
+    marginTop: 20
   },
 
-  backText:{
-    color:colors.subtitle,
-    fontSize:16
+  backText: {
+    color: colors.subtitle,
+    fontSize: 16
   }
 });

@@ -4,6 +4,7 @@ import { useNavigation, useRoute } from "@react-navigation/native";
 import * as FileSystem from "expo-file-system/legacy";
 import colors from "../theme/colors";
 import { decryptConvFields, encryptConvFields } from "../utils/ConversationCrypto";
+import { deleteConvBdd } from "../api/api";
 
 
 export default function EditConvScreen() {
@@ -26,9 +27,9 @@ export default function EditConvScreen() {
       const list = JSON.parse(raw);
       const conv = list.find(c => c.id === convId);
 
-      if (conv){
+      if (conv) {
         const dec = decryptConvFields(conv, globalThis.session_Hmaster);
-setConvName(dec.name);
+        setConvName(dec.name);
 
       }
     } catch (e) {
@@ -44,17 +45,17 @@ setConvName(dec.name);
       let list = JSON.parse(raw);
 
       list = list.map(c => {
-  if (c.id !== convId) return c;
+        if (c.id !== convId) return c;
 
-  const decrypted = decryptConvFields(c, globalThis.session_Hmaster);
+        const decrypted = decryptConvFields(c, globalThis.session_Hmaster);
 
-  const updated = {
-    ...decrypted,
-    name: convName
-  };
+        const updated = {
+          ...decrypted,
+          name: convName
+        };
 
-  return encryptConvFields(updated, globalThis.session_Hmaster);
-});
+        return encryptConvFields(updated, globalThis.session_Hmaster);
+      });
 
 
       await FileSystem.writeAsStringAsync(path, JSON.stringify(list));
@@ -69,6 +70,10 @@ setConvName(dec.name);
     const path = FileSystem.documentDirectory + "conversations.json";
 
     try {
+      // SUPPRESSION BDD
+      await deleteConvBdd(convId);
+
+      // SUPPRESSION LOCALE
       const raw = await FileSystem.readAsStringAsync(path);
       let list = JSON.parse(raw);
 
@@ -76,7 +81,7 @@ setConvName(dec.name);
 
       await FileSystem.writeAsStringAsync(path, JSON.stringify(list));
 
-      // Supprime aussi le fichier messages
+      // SUPPRESSION FICHIER LOCAL DES MESSAGES
       const msgPath = FileSystem.documentDirectory + `conv_${convId}.json`;
       await FileSystem.deleteAsync(msgPath, { idempotent: true });
 
@@ -86,6 +91,7 @@ setConvName(dec.name);
 
     navigation.navigate("Main");
   }
+
 
   return (
     <View style={styles.container}>

@@ -17,14 +17,14 @@ export async function fetchMessages(convId) {
 
 if (!conv) return [];
 
-const key = conv.key;
+const key = globalThis.currentConvKey;
 
 // Déchiffrement
 return allMessages
   .filter(m => m.conv_id === convId)
   .map(m => ({
     ...m,
-    text: aesDecrypt(m.text, key) // ← décryptage ici
+    text: aesDecrypt(m.text, key) 
   }));
 
   } catch (e) {
@@ -33,9 +33,9 @@ return allMessages
   }
 }
 
-export async function sendMessage(convId, plaintext, sender = null) {
+export async function sendMessage(convId, plaintext, sender = null, isSave = false, param = {}) {
   try {
-    // Charger les conversations locales pour récupérer la clé AES
+    // Charger la clé de la conversation
     const path = FileSystem.documentDirectory + "conversations.json";
     const raw = await FileSystem.readAsStringAsync(path);
     const list = JSON.parse(raw);
@@ -46,16 +46,18 @@ export async function sendMessage(convId, plaintext, sender = null) {
       return false;
     }
 
-    const key = conv.key;
+    const key = globalThis.currentConvKey;
 
-    // Chiffrement local AVANT envoi
+    // Chiffrement du message
     const encrypted = aesEncrypt(plaintext, key);
 
     const payload = {
       conv_id: convId,
       text: encrypted,
       timestamp: Date.now(),
-      sender: sender
+      sender: sender,
+      isSave: isSave,  
+      param: param    
     };
 
     const response = await fetch(`${API_URL}/messages`, {
@@ -65,11 +67,89 @@ export async function sendMessage(convId, plaintext, sender = null) {
       },
       body: JSON.stringify(payload)
     });
-
     return response.ok;
   } catch (e) {
     console.log("Erreur sendMessage:", e);
     return false;
+  }
+}
+
+export async function saveMessage(messageId) {
+  try {
+    const res = await fetch(`${API_URL}/messages/${messageId}/save`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" }
+    });
+
+    return res.ok;
+  } catch (e) {
+    console.error("saveMessage error", e);
+    return false;
+  }
+}
+
+export async function unsaveMessage(messageId) {
+  try {
+    const res = await fetch(`${API_URL}/messages/${messageId}/unsave`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" }
+    });
+    return res.ok;
+  } catch (e) {
+    console.error("unsaveMessage error", e);
+    return false;
+  }
+}
+
+export async function deleteMessage(messageId) {
+  try {
+    const res = await fetch(`${API_URL}/messages/${messageId}`, {
+      method: "DELETE",
+    });
+    return res.ok;
+  } catch (e) {
+    console.error("deleteMessage error", e);
+    return false;
+  }
+}
+
+export async function deleteConvBdd(convId) {
+  try {
+    const res = await fetch(`${API_URL}/conversations/${convId}`, {
+      method: "DELETE",
+    });
+    return res.ok;
+  } catch (e) {
+    console.error("deleteConvBdd error", e);
+    return false;
+  }
+}
+
+export async function fetchConversations(userId) {
+  try {
+    const res = await fetch(`${API_URL}/conversations?userId=${userId}`);
+    if (!res.ok) return [];
+    return await res.json();
+  } catch {
+    return [];
+  }
+}
+
+export async function fetchLastTimes(convIds) {
+  try {
+    const res = await fetch(`${API_URL}/conversations-last-time`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ convIds }),
+    });
+
+    if (!res.ok) return [];
+    return await res.json();
+  } catch (e) {
+    console.error(e);
+    return [];
   }
 }
 

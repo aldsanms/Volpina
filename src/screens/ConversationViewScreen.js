@@ -7,13 +7,13 @@ import {
   FlatList,
   TextInput,
   Keyboard,
+  Image,
 } from 'react-native';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import * as FileSystem from 'expo-file-system/legacy';
 import colors from '../theme/colors';
 import { decryptConvFields } from "../utils/ConversationCrypto";
-import { fetchMessages, sendMessage } from "../api/api";
-import { generatePseudo } from "../utils/pseudoUtils";
+import { fetchMessages, sendMessage, saveMessage, unsaveMessage, deleteMessage } from "../api/api";
 
 export default function ConversationViewScreen() {
 
@@ -33,13 +33,16 @@ export default function ConversationViewScreen() {
   const restoreOffsetRef = useRef(0);
 
   const [userMap, setUserMap] = useState({});
-  const usersPath = FileSystem.documentDirectory + `users_${convId}.json`;
+  const [userMapReady, setUserMapReady] = useState(false);
 
+  const usersPath = FileSystem.documentDirectory + `users_${convId}.json`;
   const myId = useRef(null);
 
-  //──────────────────────────────────────────
-  //              USER MAP
-  //──────────────────────────────────────────
+  // MENU LONG PRESS
+  const [menuVisible, setMenuVisible] = useState(false);
+  const [selectedMessage, setSelectedMessage] = useState(null);
+
+  //──────────────── USER MAP
   async function loadUserMap() {
     try {
       const raw = await FileSystem.readAsStringAsync(usersPath);
@@ -47,24 +50,15 @@ export default function ConversationViewScreen() {
     } catch {
       setUserMap({});
     }
+    setUserMapReady(true);
   }
 
   function getPseudo(senderId) {
     if (senderId === myId.current) return "Moi";
-
-    if (!userMap[senderId]) {
-      const newPseudo = generatePseudo(Object.values(userMap));
-      const updated = { ...userMap, [senderId]: newPseudo };
-      setUserMap(updated);
-      FileSystem.writeAsStringAsync(usersPath, JSON.stringify(updated));
-      return newPseudo;
-    }
-    return userMap[senderId];
+    return userMap[senderId] || "Inconnu";
   }
 
-  //──────────────────────────────────────────
-  //              SCROLL TO BOTTOM
-  //──────────────────────────────────────────
+  //──────────────── SCROLL
   function scrollToBottom() {
     requestAnimationFrame(() => {
       listRef.current?.scrollToEnd({ animated: false });
@@ -77,14 +71,11 @@ export default function ConversationViewScreen() {
     });
   }
 
-  //──────────────────────────────────────────
-  //              KEYBOARD HANDLING
-  //──────────────────────────────────────────
+  //──────────────── KEYBOARD
   useEffect(() => {
     const showSub = Keyboard.addListener("keyboardDidShow", (e) => {
       const kHeight = e.endCoordinates.height;
       setKeyboardHeight(kHeight);
-
       restoreOffsetRef.current = scrollOffsetRef.current;
 
       if (isUserAtBottomRef.current) scrollToBottom();
@@ -118,16 +109,36 @@ export default function ConversationViewScreen() {
     };
   }, []);
 
-  //──────────────────────────────────────────
-  //              LOAD CONV + MESSAGES
-  //──────────────────────────────────────────
+  //──────────────── LOAD
   useFocusEffect(
     useCallback(() => {
+      loadUserMap();
       loadConvInfo();
       loadMessages();
-      loadUserMap();
-    }, [])
+    }, [convId])
   );
+
+  function isGif(text) {
+    if (!text) return false;
+
+    try {
+      const url = text.trim();
+      return (
+        url.startsWith("http") &&
+        url.toLowerCase().endsWith(".gif")
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      loadMessages(false);
+    }, 4000);
+
+    return () => clearInterval(interval);
+  }, [convId]);
 
   async function loadConvInfo() {
     try {
@@ -141,19 +152,25 @@ export default function ConversationViewScreen() {
         const dec = decryptConvFields(conv, globalThis.session_Hmaster);
         setConvName(dec.name);
         myId.current = dec.idPerso;
+        globalThis.currentConvKey = dec.key;
       }
-    } catch {}
+    } catch { }
   }
 
-  async function loadMessages() {
-    const msgs = await fetchMessages(convId);
-    setMessages(prepareMessages(msgs));
-    setTimeout(scrollToBottom, 10);
+  async function loadMessages(forceScroll = true) {
+    const raw = await fetchMessages(convId);
+    const { list } = prepareMessages(raw);
+
+    if (JSON.stringify(list) === JSON.stringify(messages)) return;
+
+    setMessages(list);
+
+    if (forceScroll && isUserAtBottomRef.current) {
+      setTimeout(scrollToBottom, 10);
+    }
   }
 
-  //──────────────────────────────────────────
-  //              FORMAT HEURE + DATE
-  //──────────────────────────────────────────
+  //──────────────── FORMAT
   function formatTime(ts) {
     const d = new Date(Number(ts));
     if (isNaN(d.getTime())) return "";
@@ -162,10 +179,10 @@ export default function ConversationViewScreen() {
 
   function formatDayLabel(dateObj) {
     const today = new Date();
-    today.setHours(0,0,0,0);
+    today.setHours(0, 0, 0, 0);
 
     const day = new Date(dateObj.getTime());
-    day.setHours(0,0,0,0);
+    day.setHours(0, 0, 0, 0);
 
     const diff = today - day;
 
@@ -179,131 +196,131 @@ export default function ConversationViewScreen() {
     });
   }
 
-  //──────────────────────────────────────────
-  //       GROUPING BY DAY + TIME
-  //──────────────────────────────────────────
-function prepareMessages(rawMsgs) {
-  if (!rawMsgs || !Array.isArray(rawMsgs)) return [];
+  //──────────────── GROUP
+  function prepareMessages(rawMsgs) {
+    if (!rawMsgs || !Array.isArray(rawMsgs)) return { list: [], senders: [] };
 
-  const result = [];
-  let lastDay = "";
-  let lastMinute = "";
-  let lastSender = null;
+    const result = [];
+    let lastDay = "";
+    let lastMinute = "";
+    let lastSender = null;
 
-  for (let msg of rawMsgs) {
-    const d = new Date(Number(msg.timestamp));
-    if (isNaN(d.getTime())) continue;
+    for (let msg of rawMsgs) {
+      const d = new Date(Number(msg.timestamp));
+      if (isNaN(d.getTime())) continue;
 
-    const dayString = d.toLocaleDateString("fr-FR", {
-      weekday: "long",
-      day: "2-digit",
-      month: "long"
-    });
-
-    const minuteString = d.toLocaleTimeString("fr-FR", {
-      hour: "2-digit",
-      minute: "2-digit"
-    });
-
-    // ————— NOUVEAU JOUR —————
-    if (dayString !== lastDay) {
-      result.push({
-        type: "day",
-        id: `day-${dayString}`,
-        label: dayString
+      const dayString = formatDayLabel(d);
+      const minuteString = d.toLocaleTimeString("fr-FR", {
+        hour: "2-digit",
+        minute: "2-digit"
       });
-      lastDay = dayString;
-      lastMinute = "";
-      lastSender = null;
+
+      if (dayString !== lastDay) {
+        result.push({
+          type: "day",
+          id: `day-${dayString}`,
+          label: dayString
+        });
+        lastDay = dayString;
+        lastMinute = "";
+        lastSender = null;
+      }
+
+      const startsNewGroup = minuteString !== lastMinute;
+      const showPseudo = msg.sender !== lastSender || startsNewGroup;
+
+      result.push({
+        ...msg,
+        type: "msg",
+        showTime: startsNewGroup,
+        showPseudo,
+        marginTop: startsNewGroup ? 14 : -2
+      });
+
+      lastSender = msg.sender;
+      lastMinute = minuteString;
     }
 
-    // ————— NOUVEAU GROUPE D’HEURE —————
-    const startsNewGroup = (minuteString !== lastMinute);
-    const newSender = msg.sender !== lastSender;
-
-    result.push({
-      ...msg,
-      type: "msg",
-      showTime: startsNewGroup,
-      showPseudo: newSender,   
-      marginTop: startsNewGroup ? 14 : 0
-    });
-
-    lastMinute = minuteString;
-    lastSender = msg.sender;
+    return { list: result };
   }
 
-  return result;
-}
+  //──────────────── RENDER ITEM (STRUCTURE ORIGINALE)
+  const renderItem = ({ item }) => {
 
+    if (item.type === "day") {
+      return (
+        <View style={styles.daySeparatorContainer}>
+          <Text style={styles.daySeparatorText}>{item.label}</Text>
+        </View>
+      );
+    }
 
-  //──────────────────────────────────────────
-  //                RENDER ITEM
-  //──────────────────────────────────────────
-const renderItem = ({ item }) => {
+    const isMe = item.sender === myId.current;
+    const pseudo = getPseudo(item.sender);
+    const time = formatTime(item.timestamp);
 
-  // ───────────── SECTION JOUR (séparateur) ─────────────
-  if (item.type === "day") {
     return (
-      <View style={styles.daySeparatorContainer}>
-        <Text style={styles.daySeparatorText}>{item.label}</Text>
-      </View>
-    );
-  }
+      <View
+        style={[
+          styles.row,
+          isMe ? styles.rowMe : styles.rowOther,
+          { marginTop: item.marginTop ?? 0 }
+        ]}
+      >
 
-  // ───────────── SECTION MESSAGE ─────────────
-  const isMe = item.sender === myId.current;
-  const pseudo = getPseudo(item.sender);
-  const time = formatTime(item.timestamp);
-
-  return (
-    <View
-      style={[
-        styles.row,
-        isMe ? styles.rowMe : styles.rowOther,
-        { marginTop: item.marginTop ?? 0 }
-      ]}
-    >
-
-      {/* Heure côté gauche POUR MES messages */}
-      {isMe && item.showTime && (
-        <Text style={[styles.timeSide, styles.timeRight]}>
-          {time}
-        </Text>
-      )}
-
-      <View style={styles.column}>
-
-        {/* Pseudo seulement si NOUVEAU BLOC */}
-        {!isMe && item.showPseudo && (
-          <Text style={styles.pseudo}>{pseudo}</Text>
+        {isMe && item.showTime && (
+          <Text style={[styles.timeSide, styles.timeRight]}>
+            {time}
+          </Text>
         )}
 
-        <View
-          style={[
-            styles.bubble,
-            isMe ? styles.myBubble : styles.otherBubble
-          ]}
-        >
-          <Text style={styles.msgText}>{item.text}</Text>
+        <View style={styles.column}>
+
+          {!isMe && item.showPseudo && (
+            <Text style={styles.pseudo}>{pseudo}</Text>
+          )}
+
+          <TouchableOpacity
+            activeOpacity={0.7}
+            onLongPress={() => {
+              setSelectedMessage(item);
+              setMenuVisible(true);
+            }}
+          >
+            <View
+              style={[
+                styles.bubble,
+                isMe ? styles.myBubble : styles.otherBubble,
+                item.issave && styles.savedBorder
+              ]}
+            >
+              {isGif(item.text) ? (
+                <Image
+                  source={{ uri: item.text }}
+                  style={styles.gif}
+                  resizeMode="cover"
+                />
+              ) : (
+                <Text style={styles.msgText}>{item.text}</Text>
+              )}
+
+            </View>
+          </TouchableOpacity>
+
         </View>
+
+        {!isMe && item.showTime && (
+          <Text style={[styles.timeSide, styles.timeLeft]}>
+            {time}
+          </Text>
+        )}
+
       </View>
+    );
+  };
 
-      {/* Heure côté droit pour les AUTRES messages */}
-      {!isMe && item.showTime && (
-        <Text style={[styles.timeSide, styles.timeLeft]}>
-          {time}
-        </Text>
-      )}
+  if (!userMapReady) return null;
 
-    </View>
-  );
-};
-
-
-  //──────────────────────────────────────────
-  //                RENDER SCREEN
-  //──────────────────────────────────────────
   return (
     <View style={styles.screen}>
 
@@ -316,17 +333,22 @@ const renderItem = ({ item }) => {
         <Text style={styles.title}>{convName}</Text>
 
         <View style={styles.rightButtons}>
-          <TouchableOpacity style={styles.headerBtn}
-            onPress={() => navigation.navigate("EditConv", { convId })}>
+          <TouchableOpacity
+            style={styles.headerBtn}
+            onPress={() => navigation.navigate("EditConv", { convId })}
+          >
             <Text style={styles.headerBtnText}>⋯</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.headerBtn}
-            onPress={() => navigation.navigate("ShareConv", { convId })}>
+          <TouchableOpacity
+            style={styles.headerBtn}
+            onPress={() => navigation.navigate("ShareConv", { convId })}
+          >
             <Text style={styles.headerBtnText}>QR</Text>
           </TouchableOpacity>
         </View>
       </View>
+
 
       {/* CONTENT */}
       <View style={styles.content}>
@@ -372,9 +394,7 @@ const renderItem = ({ item }) => {
             style={styles.sendButton}
             onPress={async () => {
               if (!inputText.trim()) return;
-
               const ok = await sendMessage(convId, inputText, myId.current);
-
               if (ok) {
                 setInputText("");
                 loadMessages();
@@ -384,8 +404,90 @@ const renderItem = ({ item }) => {
             <Text style={styles.sendButtonText}>Envoyer</Text>
           </TouchableOpacity>
         </View>
-
       </View>
+
+      {/* MENU LONG PRESS */}
+      {menuVisible && (
+        <View style={styles.overlay}>
+          <TouchableOpacity
+            style={StyleSheet.absoluteFill}
+            onPress={() => setMenuVisible(false)}
+          />
+          <View style={styles.menu}>
+
+            {/* ENREGISTRER */}
+            {!selectedMessage?.issave && (
+              <TouchableOpacity
+                style={styles.menuItem}
+                onPress={async () => {
+                  const ok = await saveMessage(selectedMessage.id);
+                  if (ok) {
+                    setMessages(prev =>
+                      prev.map(m =>
+                        m.id === selectedMessage.id
+                          ? { ...m, issave: true }
+                          : m
+                      )
+                    );
+                  }
+                  setMenuVisible(false);
+                }}
+              >
+                <Text style={styles.menuText}>Enregistrer</Text>
+              </TouchableOpacity>
+            )}
+
+            {/* DÉSENREGISTRER */}
+            {selectedMessage?.issave && (
+              <TouchableOpacity
+                style={styles.menuItem}
+                onPress={async () => {
+                  const ok = await unsaveMessage(selectedMessage.id);
+                  if (ok) {
+                    setMessages(prev =>
+                      prev.map(m =>
+                        m.id === selectedMessage.id
+                          ? { ...m, issave: false }
+                          : m
+                      )
+                    );
+                  }
+                  setMenuVisible(false);
+                }}
+              >
+                <Text style={[styles.menuText, { color: "#f87171" }]}>
+                  Désenregistrer
+                </Text>
+              </TouchableOpacity>
+            )}
+
+            {/* SUPPRIMER (SEULEMENT SI C'EST MOI) */}
+            {String(selectedMessage?.sender) === String(myId.current)
+              && (
+                <TouchableOpacity
+                  style={styles.menuItem}
+                  onPress={async () => {
+                    const ok = await deleteMessage(selectedMessage.id);
+                    if (ok) {
+                      setMessages(prev =>
+                        prev.filter(m => m.id !== selectedMessage.id)
+                      );
+                    }
+                    setMenuVisible(false);
+                  }}
+                >
+                  <Text style={[styles.menuText, { color: "#ef4444", fontWeight: "bold" }]}>
+                    Supprimer
+                  </Text>
+                </TouchableOpacity>
+              )}
+
+          </View>
+
+
+        </View>
+      )}
+
     </View>
   );
 }
@@ -450,7 +552,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-end",
     marginBottom: 8,
-    paddingHorizontal: 0,
   },
 
   rowMe: {
@@ -484,7 +585,6 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.25)",
     borderRadius: 14,
     borderTopRightRadius: 4,
-    marginRight: 0,
   },
 
   otherBubble: {
@@ -493,7 +593,11 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.15)",
     borderRadius: 14,
     borderTopLeftRadius: 4,
-    marginLeft: 0,
+  },
+
+  savedBorder: {
+    borderWidth: 2,
+    borderColor: "#8b5cf6",
   },
 
   msgText: {
@@ -508,13 +612,8 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
 
-  timeLeft: {
-    alignSelf: "flex-end",
-  },
-
-  timeRight: {
-    alignSelf: "flex-end",
-  },
+  timeLeft: { alignSelf: "flex-end" },
+  timeRight: { alignSelf: "flex-end" },
 
   sendBar: {
     position: "absolute",
@@ -570,4 +669,36 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 12,
   },
+
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.4)",
+  },
+
+  menu: {
+    position: "absolute",
+    bottom: 140,
+    left: 30,
+    right: 30,
+    backgroundColor: colors.backgroundLight,
+    borderRadius: 12,
+  },
+
+  menuItem: {
+    padding: 16,
+  },
+
+  menuText: {
+    color: colors.text,
+    textAlign: "center",
+    fontSize: 16,
+  },
+
+  gif: {
+    width: 220,
+    height: 220,
+    borderRadius: 12,
+    backgroundColor: "#000",
+  },
+
 });
